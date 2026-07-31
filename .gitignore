@@ -1,1 +1,47 @@
-Nothing to output - the modified file 'StructuralTools/Engine/WallLoadEngine.cs' is a source code file and no build artifacts, dependencies, or temporary files were detected in the changes.
+```
+# Build artifacts
+*.obj
+*.exe
+*.dll
+*.so
+*.class
+*.pyc
+__pycache__/
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+.env
+.env.local
+*.env.*
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Distribution
+dist/
+build/
+target/
+.gradle/
+
+# Python cache
+.mypy_cache/
+.pytest_cache/
+
+# System files
+.DS_Store
+Thumbs.db
+```

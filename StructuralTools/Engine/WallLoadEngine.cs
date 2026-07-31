@@ -1,100 +1,188 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Windows;
-using System.Windows.Interop;
-using System.Windows.Media;
-
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
 using RevitOperationCanceledException = Autodesk.Revit.Exceptions.OperationCanceledException;
 using RevitInvalidOperationException = Autodesk.Revit.Exceptions.InvalidOperationException;
-using DB = Autodesk.Revit.DB;
-
-using StructuralTools.Models;
-using StructuralTools.UI;
 
 namespace StructuralTools.Engine
 {
-    /// <summary>
-    /// Wall-to-Line-Load generation engine.
-    /// Refactored from the original WllgEngine macro to work as a service in the add-in architecture.
-    /// </summary>
+    public struct WallEntry
+    {
+        public Wall Wall;
+        public DB.Transform Transform;
+        public string? Source;
+    }
+
+    public class LoadResult
+    {
+        public List<LineLoad> Created = new List<LineLoad>();
+        public List<string> Log = new List<string>();
+        public int Errors = 0;
+        public int LcFails = 0;
+    }
+
     public class WallLoadEngine
     {
-        // CONFIG
         private const double DEFAULT_FUDGE_FACTOR_PCT = 10.0;
-        private const bool   DEFAULT_APPLY_FUDGE      = true;
-        private const double GRAVITY_M_S2             = 9.80665;
+        private const bool DEFAULT_APPLY_FUDGE = true;
+        private const double GRAVITY_M_S2 = 9.80665;
 
-        // State threaded through the interactive loop
         private readonly UIApplication _uiApp;
-        private readonly UIDocument    _uiDoc;
-        private readonly Document      _doc;
+        private readonly UIDocument _uiDoc;
+        private readonly Document _doc;
 
         private List<WallEntry> _selectedWalls = new List<WallEntry>();
-        private Element         _hostElement   = null;
-        private bool            _applyFudge    = DEFAULT_APPLY_FUDGE;
-        private string          _fudgePctText  = DEFAULT_FUDGE_FACTOR_PCT.ToString("G4");
-
-        // Material unit-weight cache. Key = MaterialId. Value = kN/m³.
+        private Element? _hostElement = null;
+        private bool _applyFudge = DEFAULT_APPLY_FUDGE;
+        private string _fudgePctText = DEFAULT_FUDGE_FACTOR_PCT.ToString("G4");
         private Dictionary<ElementId, double> _materialWeightCache;
 
         public WallLoadEngine(UIApplication uiApp)
         {
             _uiApp = uiApp;
             _uiDoc = uiApp.ActiveUIDocument;
-            _doc   = _uiDoc.Document;
+            _doc = _uiDoc.Document;
+            _materialWeightCache = new Dictionary<ElementId, double>();
         }
 
-        /// <summary>
-        /// Main entry point. Runs the interactive wall selection and load generation loop.
-        /// </summary>
-        public void Run()
+        public Result Run()
         {
             _materialWeightCache = new Dictionary<ElementId, double>();
-            string lastStatus = null;
+            string? lastStatus = null;
 
             while (true)
             {
-                var dlg = new WallLoadDialog(
-                    _selectedWalls, _hostElement,
-                    DetectDeadLoadCase(), GetAllLoadCases(),
-                    lastStatus, _applyFudge, _fudgePctText);
+                var dialogData = ShowMainDialog(lastStatus);
+                
+                if (dialogData.Cancelled)
+                    return Result.Cancelled;
 
-                new WindowInteropHelper(dlg).Owner = _uiApp.MainWindowHandle;
-                dlg.ShowDialog();
+                _applyFudge = dialogData.ApplyFudge;
+                _fudgePctText = dialogData.FudgePctText;
+                lastStatus = null;
 
-                _applyFudge   = dlg.ApplyFudge;
-                _fudgePctText = dlg.FudgePctText;
-                lastStatus    = null;
-
-                switch (dlg.Result)
+                switch (dialogData.Action)
                 {
-                    case WallLoadDialogResult.Cancel:
-                        return;
-
-                    case WallLoadDialogResult.PickWalls:
+                    case DialogAction.PickWalls:
                         lastStatus = PickWalls();
                         break;
-
-                    case WallLoadDialogResult.PickHost:
+                    case DialogAction.PickHost:
                         lastStatus = PickHost();
                         break;
-
-                    case WallLoadDialogResult.Generate:
+                    case DialogAction.Generate:
                         lastStatus = Generate();
                         if (lastStatus == null)
-                            return;
+                            return Result.Succeeded;
+                        break;
+                    case DialogAction.Settings:
+                        ShowSettingsDialog();
+                        lastStatus = "Settings updated.";
                         break;
                 }
             }
         }
 
-        private string PickWalls()
+        private (DialogAction Action, bool Cancelled, bool ApplyFudge, string FudgePctText) ShowMainDialog(string? lastStatus)
         {
+            int wallCount = _selectedWalls.Count;
+            int linkedCount = _selectedWalls.Count(w => w.Source != null);
+            int hostCount = wallCount - linkedCount;
+            string wallsInfo = wallCount > 0
+                ? $"{wallCount} wall(s) selected ({hostCount} host, {linkedCount} linked)"
+                : "No walls selected";
+
+            string hostInfo = _hostElement != null ? GetHostLabel(_hostElement) : "No host element selected";
+            var (loadCase, lcMatched) = DetectDeadLoadCase();
+            string loadCaseInfo = loadCase != null
+                ? $"{loadCase.Name}{(lcMatched ? "" : " (⚠ auto-picked)")}"
+                : "⚠ No load cases found";
+
+            string message = $"Wall → Line Load Generator\n\n" +
+                             $"STEP 1 — Walls:\n{wallsInfo}\n\n" +
+                             $"STEP 2 — Host Element:\n{hostInfo}\n\n" +
+                             $"Load Case:\n{loadCaseInfo}\n\n" +
+                             $"Conservatism:\nFudge factor: {(_applyFudge ? $"+{_fudgePctText}%" : "Not applied")}\n\n" +
+                             (string.IsNullOrEmpty(lastStatus) ? "" : $"Status: {lastStatus}\n\n");
+
+            var dialog = new TaskDialog("Wall Load Generator");
+            dialog.MainInstruction = "Wall → Line Load Generator";
+            dialog.MainContent = message;
+            
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, 
+                "📐 Pick Walls (click or box-select, host or linked models)",
+                wallCount > 0 ? $"Current: {wallsInfo}" : "");
+            
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
+                "🏗 Pick Host Element (beam or floor, current model only)",
+                _hostElement != null ? $"Current: {GetHostLabel(_hostElement)}" : "");
+            
+            bool canGenerate = wallCount > 0 && _hostElement != null;
+            if (canGenerate)
+            {
+                dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink3,
+                    "⚡ Generate Line Loads",
+                    $"Will create loads on {_hostElement.Name}");
+            }
+            
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink4, "⚙ Settings (fudge factor, defaults)");
+            
+            dialog.CommonButtons = TaskDialogCommonButtons.Close;
+            dialog.DefaultButtonIndex = (int)(canGenerate ? TaskDialogCommandLinkId.CommandLink3 : TaskDialogCommandLinkId.CommandLink1);
+
+            var result = dialog.Show();
+            
+            switch (result)
+            {
+                case TaskDialogResult.CommandLink1:
+                    return (DialogAction.PickWalls, false, _applyFudge, _fudgePctText);
+                case TaskDialogResult.CommandLink2:
+                    return (DialogAction.PickHost, false, _applyFudge, _fudgePctText);
+                case TaskDialogResult.CommandLink3:
+                    return (DialogAction.Generate, false, _applyFudge, _fudgePctText);
+                case TaskDialogResult.CommandLink4:
+                    return (DialogAction.Settings, false, _applyFudge, _fudgePctText);
+                default:
+                    return (DialogAction.None, true, _applyFudge, _fudgePctText);
+            }
+        }
+
+        private void ShowSettingsDialog()
+        {
+            string message = $"Current Settings:\n\n" +
+                             $"Fudge Factor: {(_applyFudge ? $"+{_fudgePctText}%" : "Not applied")}\n\n" +
+                             "The fudge factor adds a conservatism allowance for incomplete modeling.\n\n" +
+                             "Enter new fudge factor percentage (e.g., 10 for 10%), or leave empty to disable:";
+
+            var dialog = new TaskDialog("Settings");
+            dialog.MainInstruction = "Wall Load Generator Settings";
+            dialog.MainContent = message;
+            dialog.AddEditOption("fudgeFactor", _applyFudge ? _fudgePctText : "");
+            dialog.CommonButtons = TaskDialogCommonButtons.Ok | TaskDialogCommonButtons.Cancel;
+
+            var result = dialog.Show();
+            if (result == TaskDialogResult.Ok)
+            {
+                string inputValue = dialog.GetEditStringValue("fudgeFactor");
+                if (!string.IsNullOrWhiteSpace(inputValue))
+                {
+                    _applyFudge = true;
+                    _fudgePctText = inputValue.Trim();
+                }
+                else
+                {
+                    _applyFudge = false;
+                }
+            }
+        }
+
+        private string? PickWalls()
+        {
+            SetStatusBar("Select walls — click or drag-box, host model or linked — then press Esc or green tick");
+            
             try
             {
                 IList<Reference> refs = _uiDoc.Selection.PickObjects(
@@ -102,14 +190,14 @@ namespace StructuralTools.Engine
                     new WallOrLinkFilter(),
                     "Select walls — click or drag-box, host model or linked — then press Finish (green tick)");
 
-                var newWalls   = new List<WallEntry>();
-                var seenKeys   = new HashSet<string>();
-                int skipped    = 0;
+                var newWalls = new List<WallEntry>();
+                var seenKeys = new HashSet<string>();
+                int skipped = 0;
                 int duplicates = 0;
 
                 foreach (var r in refs)
                 {
-                    bool   isLinked  = r.LinkedElementId != ElementId.InvalidElementId;
+                    bool isLinked = r.LinkedElementId != ElementId.InvalidElementId;
                     string dedupeKey = isLinked
                         ? $"link:{r.ElementId.Value}:{r.LinkedElementId.Value}"
                         : $"host:{r.ElementId.Value}";
@@ -127,9 +215,9 @@ namespace StructuralTools.Engine
                         if (!(elem is Wall)) { skipped++; continue; }
                         entry = new WallEntry
                         {
-                            Wall      = (Wall)elem,
-                            Transform = linkInst.GetTotalTransform(),
-                            Source    = linkDoc.Title
+                            Wall = (Wall)elem,
+                            Transform = DB.Transform.Identity,
+                            Source = linkDoc.Title
                         };
                     }
                     else
@@ -138,9 +226,9 @@ namespace StructuralTools.Engine
                         if (!(elem is Wall)) { skipped++; continue; }
                         entry = new WallEntry
                         {
-                            Wall      = (Wall)elem,
-                            Transform = Autodesk.Revit.DB.Transform.Identity,
-                            Source    = null
+                            Wall = (Wall)elem,
+                            Transform = DB.Transform.Identity,
+                            Source = null
                         };
                     }
 
@@ -148,52 +236,65 @@ namespace StructuralTools.Engine
                     newWalls.Add(entry);
                 }
 
+                ClearStatusBar();
+
                 if (newWalls.Count == 0)
                     return "⚠ No Wall elements in selection — try again.";
 
                 _selectedWalls = newWalls;
                 var notes = new List<string>();
-                if (skipped    > 0) notes.Add($"{skipped} non-wall pick(s) ignored");
+                if (skipped > 0) notes.Add($"{skipped} non-wall pick(s) ignored");
                 if (duplicates > 0) notes.Add($"{duplicates} duplicate reference(s) ignored");
                 string suffix = notes.Count > 0 ? "  " + string.Join("; ", notes) + "." : "";
                 return $"{newWalls.Count} wall(s) selected.{suffix}";
             }
             catch (RevitOperationCanceledException)
             {
+                ClearStatusBar();
                 return "Wall selection was cancelled.";
             }
         }
 
-        private string PickHost()
+        private string? PickHost()
         {
+            SetStatusBar("Select the host beam or floor (must be in the current model, not a link)");
+            
             try
             {
-                var r    = _uiDoc.Selection.PickObject(
+                var r = _uiDoc.Selection.PickObject(
                     ObjectType.Element,
                     "Select the host beam or floor (must be in the current model, not a link)");
                 var elem = _doc.GetElement(r.ElementId);
 
                 if (elem is RevitLinkInstance)
+                {
+                    ClearStatusBar();
                     return "⚠ Structural loads can only be hosted on elements in the current model — " +
                            "a linked beam/floor cannot be used as the host.";
+                }
 
                 if (ClassifyHost(elem) == null)
+                {
+                    ClearStatusBar();
                     return "⚠ That element is not a Floor or Structural Framing member. " +
                            "Pick a beam or a floor slab.";
+                }
 
                 _hostElement = elem;
+                ClearStatusBar();
                 return null;
             }
             catch (RevitOperationCanceledException)
             {
+                ClearStatusBar();
                 return "Host selection was cancelled.";
             }
         }
 
-        private string Generate()
+        private string? Generate()
         {
             var (loadCase, lcMatched) = DetectDeadLoadCase();
-            var defaultLoadType       = GetDefaultLoadType();
+            var defaultLoadType = GetDefaultLoadType();
 
             if (defaultLoadType == null)
             {
@@ -221,12 +322,15 @@ namespace StructuralTools.Engine
                 fudgeMultiplier = 1.0 + fudgePct / 100.0;
             }
 
+            SetStatusBar($"Generating loads on {_selectedWalls.Count} wall(s)...");
+            
             var result = CreateLoads(
                 _selectedWalls, _hostElement,
                 loadCase, 24.0, defaultLoadType,
                 fudgeMultiplier);
 
             int linkedCount = _selectedWalls.Count(w => w.Source != null);
+            ClearStatusBar();
 
             string summary =
                 $"✅  {result.Created.Count} load segment(s) created\n" +
@@ -244,11 +348,11 @@ namespace StructuralTools.Engine
 
         private LoadResult CreateLoads(
             List<WallEntry> wallItems,
-            Element         physicalHost,
-            LoadCase        loadCase,
-            double          fallbackGamma,
-            LineLoadType    defaultLoadType,
-            double          fudgeMultiplier = 1.0)
+            Element physicalHost,
+            LoadCase loadCase,
+            double fallbackGamma,
+            LineLoadType defaultLoadType,
+            double fudgeMultiplier = 1.0)
         {
             var res = new LoadResult();
 
@@ -264,8 +368,8 @@ namespace StructuralTools.Engine
                 Log("No host element provided.", "ERROR"); res.Errors++; return res;
             }
 
-            string    hostType = ClassifyHost(physicalHost);
-            ElementId analId   = GetAnalyticalId(physicalHost);
+            string? hostType = ClassifyHost(physicalHost);
+            ElementId analId = GetAnalyticalId(physicalHost);
 
             if (analId == ElementId.InvalidElementId)
             {
@@ -281,9 +385,9 @@ namespace StructuralTools.Engine
 
                 foreach (var entry in wallItems)
                 {
-                    Wall            wall      = entry.Wall;
-                    DB.Transform    transform = entry.Transform ?? DB.Transform.Identity;
-                    string          source    = entry.Source;
+                    Wall wall = entry.Wall;
+                    DB.Transform transform = entry.Transform ?? DB.Transform.Identity;
+                    string? source = entry.Source;
 
                     if (wall == null) continue;
 
@@ -320,8 +424,8 @@ namespace StructuralTools.Engine
                     if (!TryFindInserts(wall, out insertIds))
                         insertIds = new List<ElementId>();
 
-                    double ps         = lc.GetEndParameter(0);
-                    double pe         = lc.GetEndParameter(1);
+                    double ps = lc.GetEndParameter(0);
+                    double pe = lc.GetEndParameter(1);
                     double paramRange = pe - ps;
 
                     var rawOpenings = new List<(double tMin, double tMax, double h)>();
@@ -361,7 +465,7 @@ namespace StructuralTools.Engine
                         if (InternalLenToM((t1 - t0) * clLen) < 0.010) continue;
 
                         double tMid = (t0 + t1) / 2.0;
-                        double dh   = openingData
+                        double dh = openingData
                             .Where(op => op.tMin <= tMid && tMid <= op.tMax)
                             .Sum(op => op.h);
 
@@ -380,7 +484,7 @@ namespace StructuralTools.Engine
                                 ? sc.CreateTransformed(transform)
                                 : sc;
 
-                            Curve lcCurve = BuildHostedCurve(raw, physicalHost, hostType, analId, res.Log, wid);
+                            Curve? lcCurve = BuildHostedCurve(raw, physicalHost, hostType, analId, res.Log, wid);
                             if (lcCurve == null) { res.Errors++; continue; }
 
                             var fv = new XYZ(0, 0, -KnPerMToInternal(loadVal));
@@ -419,7 +523,17 @@ namespace StructuralTools.Engine
             return res;
         }
 
-        #region Helper Methods (Geometry, Materials, Openings)
+        private class WallOrLinkFilter : ISelectionFilter
+        {
+            public bool AllowElement(Element elem) =>
+                (elem is Wall) || (elem is RevitLinkInstance);
+
+            public bool AllowReference(Reference reference, XYZ position) => true;
+        }
+
+        private enum DialogAction { None, PickWalls, PickHost, Generate, Settings }
+
+        #region Helper Methods
 
         private static double GetActualWallHeight(Wall wall, string wid, List<string> log)
         {
@@ -436,16 +550,16 @@ namespace StructuralTools.Engine
 
             var opts = new Options
             {
-                ComputeReferences        = false,
+                ComputeReferences = false,
                 IncludeNonVisibleObjects = false,
-                DetailLevel              = ViewDetailLevel.Fine
+                DetailLevel = ViewDetailLevel.Fine
             };
 
             GeometryElement geom = wall.get_Geometry(opts);
             if (geom != null)
             {
-                Solid  largest = null;
-                double maxVol  = 0.0;
+                Solid? largest = null;
+                double maxVol = 0.0;
                 foreach (GeometryObject obj in geom)
                 {
                     if (obj == null) continue;
@@ -479,7 +593,7 @@ namespace StructuralTools.Engine
             return 0.0;
         }
 
-        private static void ExtractLargestSolid(GeometryObject obj, ref Solid largest, ref double maxVol)
+        private static void ExtractLargestSolid(GeometryObject obj, ref Solid? largest, ref double maxVol)
         {
             if (obj == null) return;
 
@@ -487,7 +601,7 @@ namespace StructuralTools.Engine
             {
                 if (solid.Volume > 0 && solid.Volume > maxVol)
                 {
-                    maxVol  = solid.Volume;
+                    maxVol = solid.Volume;
                     largest = solid;
                 }
                 return;
@@ -503,32 +617,32 @@ namespace StructuralTools.Engine
         }
 
         private static (double tMin, double tMax, double h)? GetOpeningInfo(
-            Element        insert,
+            Element insert,
             BoundingBoxXYZ wallBB,
-            Curve          lc,
-            double         ps,
-            double         pe,
-            double         paramRange,
-            string         wid,
-            List<string>   log)
+            Curve lc,
+            double ps,
+            double pe,
+            double paramRange,
+            string wid,
+            List<string> log)
         {
             double wallZMin = wallBB.Min.Z;
             double wallZMax = wallBB.Max.Z;
 
             var opts = new Options
             {
-                ComputeReferences        = false,
+                ComputeReferences = false,
                 IncludeNonVisibleObjects = false,
-                DetailLevel              = ViewDetailLevel.Fine
+                DetailLevel = ViewDetailLevel.Fine
             };
 
-            GeometryElement geom = null;
+            GeometryElement? geom = null;
             try { geom = insert.get_Geometry(opts); } catch { }
 
             if (geom != null)
             {
-                Solid  largest = null;
-                double maxVol  = 0.0;
+                Solid? largest = null;
+                double maxVol = 0.0;
                 foreach (GeometryObject obj in geom)
                 {
                     if (obj == null) continue;
@@ -557,11 +671,11 @@ namespace StructuralTools.Engine
 
                         double tMin = double.MaxValue;
                         double tMax = double.MinValue;
-                        bool   any  = false;
+                        bool any = false;
 
                         foreach (var pt in corners)
                         {
-                            IntersectionResult pr = null;
+                            IntersectionResult? pr = null;
                             try { pr = lc.Project(pt); } catch { }
                             if (pr == null) continue;
 
@@ -577,7 +691,7 @@ namespace StructuralTools.Engine
                 }
             }
 
-            BoundingBoxXYZ ib = null;
+            BoundingBoxXYZ? ib = null;
             try { ib = insert.get_BoundingBox(null); } catch { }
             if (ib == null)
             {
@@ -598,11 +712,11 @@ namespace StructuralTools.Engine
 
             double tMin2 = double.MaxValue;
             double tMax2 = double.MinValue;
-            bool   any2  = false;
+            bool any2 = false;
 
             foreach (var pt in pts2)
             {
-                IntersectionResult pr = null;
+                IntersectionResult? pr = null;
                 try { pr = lc.Project(pt); } catch { }
                 if (pr == null) continue;
 
@@ -624,7 +738,7 @@ namespace StructuralTools.Engine
             var result = new List<(double tMin, double tMax, double h)>();
             if (intervals == null || intervals.Count == 0) return result;
 
-            var sorted  = intervals.OrderBy(iv => iv.tMin).ToList();
+            var sorted = intervals.OrderBy(iv => iv.tMin).ToList();
             var current = sorted[0];
 
             for (int i = 1; i < sorted.Count; i++)
@@ -635,7 +749,7 @@ namespace StructuralTools.Engine
                     current = (
                         current.tMin,
                         Math.Max(current.tMax, next.tMax),
-                        Math.Max(current.h,    next.h));
+                        Math.Max(current.h, next.h));
                 }
                 else
                 {
@@ -647,7 +761,31 @@ namespace StructuralTools.Engine
             return result;
         }
 
-        private double GetMaterialUnitWeightCached(Material mat, double defaultGamma)
+        private static double InternalLenToM(double ft)
+        {
+            try { return UnitUtils.ConvertFromInternalUnits(ft, UnitTypeId.Meters); }
+            catch { return ft * 0.3048; }
+        }
+
+        private static double InternalUnitWeightToKnM3(double v)
+        {
+            try { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilonewtonsPerCubicMeter); }
+            catch { return v * 0.101971621; }
+        }
+
+        private static double InternalDensityToKgM3(double v)
+        {
+            try { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilogramsPerCubicMeter); }
+            catch { return v * 16.0184634; }
+        }
+
+        private static double KnPerMToInternal(double v)
+        {
+            try { return UnitUtils.ConvertToInternalUnits(v, UnitTypeId.KilonewtonsPerMeter); }
+            catch { return v / 0.175126835; }
+        }
+
+        private double GetMaterialUnitWeightCached(Material? mat, double defaultGamma)
         {
             if (mat == null) return defaultGamma;
 
@@ -688,7 +826,7 @@ namespace StructuralTools.Engine
         private double CalcWallAreaWeight(Wall wall, double fallback, List<string> log, string wid)
         {
             var wt = wall.WallType;
-            CompoundStructure cs = null;
+            CompoundStructure? cs = null;
             try { cs = wt.GetCompoundStructure(); } catch { }
 
             if (cs != null)
@@ -696,8 +834,8 @@ namespace StructuralTools.Engine
                 double total = 0.0;
                 foreach (var layer in cs.GetLayers())
                 {
-                    double   tM  = InternalLenToM(layer.Width);
-                    Material mat = (layer.MaterialId != ElementId.InvalidElementId)
+                    double tM = InternalLenToM(layer.Width);
+                    Material? mat = (layer.MaterialId != ElementId.InvalidElementId)
                         ? wall.Document.GetElement(layer.MaterialId) as Material
                         : null;
                     total += tM * GetMaterialUnitWeightCached(mat, fallback);
@@ -752,7 +890,7 @@ namespace StructuralTools.Engine
             catch { return ElementId.InvalidElementId; }
         }
 
-        private static string ClassifyHost(Element elem)
+        private static string? ClassifyHost(Element elem)
         {
             if (elem == null) return null;
             if (elem is Floor) return "floor";
@@ -762,7 +900,7 @@ namespace StructuralTools.Engine
             return null;
         }
 
-        private Curve GetBeamCurve(ElementId analyticalId)
+        private Curve? GetBeamCurve(ElementId analyticalId)
         {
             var ae = _doc.GetElement(analyticalId);
             if (ae == null) return null;
@@ -784,15 +922,18 @@ namespace StructuralTools.Engine
                 if (lv != null)
                 {
                     double offsetFt = 0.0;
-                    // Try multiple parameter names for compatibility across Revit versions
-                    var p = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHT_ABOVE_LEVEL_PARAM);
-                    if (p == null || !p.HasValue)
-                        p = floor.LookupParameter("Height Offset From Level");
-                    if (p == null || !p.HasValue)
-                        p = floor.LookupParameter("Base Offset");
+                    var p = floor.LookupParameter("Base Offset")
+                         ?? floor.LookupParameter("Height Offset From Level");
                     
                     if (p != null && p.HasValue)
                         offsetFt = p.AsDouble();
+                    
+                    if (p == null)
+                    {
+                        var levelParam = floor.get_Parameter(BuiltInParameter.LEVEL_OFFSET_PARAM);
+                        if (levelParam != null && levelParam.HasValue)
+                            offsetFt = levelParam.AsDouble();
+                    }
                     
                     return lv.Elevation + offsetFt;
                 }
@@ -814,21 +955,21 @@ namespace StructuralTools.Engine
 
             if (curve is Line ln)
             {
-                var    o    = ln.GetEndPoint(0);
-                var    d    = (ln.GetEndPoint(1) - o).Normalize();
+                var o = ln.GetEndPoint(0);
+                var d = (ln.GetEndPoint(1) - o).Normalize();
                 double dist = (pt - o).DotProduct(d);
                 return o + d * Math.Max(0.0, Math.Min(ln.Length, dist));
             }
             return pt;
         }
 
-        private Curve BuildHostedCurve(
-            Curve        sc,
-            Element      physHost,
-            string       hostType,
-            ElementId    analId,
+        private Curve? BuildHostedCurve(
+            Curve sc,
+            Element physHost,
+            string? hostType,
+            ElementId analId,
             List<string> log,
-            string       wid)
+            string wid)
         {
             var p0 = sc.GetEndPoint(0);
             var p1 = sc.GetEndPoint(1);
@@ -846,7 +987,7 @@ namespace StructuralTools.Engine
             }
             else if (hostType == "floor")
             {
-                Curve analResult = TryProjectOntoAnalyticalFloor(analId, p0, p1, log, wid);
+                Curve? analResult = TryProjectOntoAnalyticalFloor(analId, p0, p1, log, wid);
                 if (analResult != null) return analResult;
 
                 log?.Add($"[INFO] Wall {wid}: Analytical floor projection unavailable — using level elevation.");
@@ -861,29 +1002,29 @@ namespace StructuralTools.Engine
             return sc;
         }
 
-        private Curve TryProjectOntoAnalyticalFloor(
-            ElementId    analId,
-            XYZ          p0,
-            XYZ          p1,
+        private Curve? TryProjectOntoAnalyticalFloor(
+            ElementId analId,
+            XYZ p0,
+            XYZ p1,
             List<string> log,
-            string       wid)
+            string wid)
         {
             var ae = _doc.GetElement(analId);
             if (ae == null) return null;
 
             var opts = new Options
             {
-                ComputeReferences        = false,
+                ComputeReferences = false,
                 IncludeNonVisibleObjects = false,
-                DetailLevel              = ViewDetailLevel.Fine
+                DetailLevel = ViewDetailLevel.Fine
             };
 
-            GeometryElement geom = null;
+            GeometryElement? geom = null;
             try { geom = ae.get_Geometry(opts); } catch { }
 
             if (geom != null)
             {
-                Face   bestFace = null;
+                Face? bestFace = null;
                 double bestArea = 0.0;
 
                 foreach (GeometryObject obj in geom)
@@ -904,7 +1045,7 @@ namespace StructuralTools.Engine
 
                 if (bestFace != null)
                 {
-                    var uvBB  = bestFace.GetBoundingBox();
+                    var uvBB = bestFace.GetBoundingBox();
                     var uvCtr = new UV(
                         (uvBB.Min.U + uvBB.Max.U) / 2.0,
                         (uvBB.Min.V + uvBB.Max.V) / 2.0);
@@ -926,7 +1067,7 @@ namespace StructuralTools.Engine
                 }
             }
 
-            BoundingBoxXYZ aebb = null;
+            BoundingBoxXYZ? aebb = null;
             try { aebb = ae.get_BoundingBox(null); } catch { }
 
             if (aebb != null)
@@ -944,7 +1085,7 @@ namespace StructuralTools.Engine
             return null;
         }
 
-        private static XYZ ProjectPointOntoPlane(XYZ pt, Plane plane)
+        private static XYZ? ProjectPointOntoPlane(XYZ pt, Plane plane)
         {
             if (pt == null || plane == null) return null;
             double dist = plane.Normal.DotProduct(pt - plane.Origin);
@@ -991,7 +1132,7 @@ namespace StructuralTools.Engine
             return false;
         }
 
-        private (LoadCase lc, bool matched) DetectDeadLoadCase()
+        private (LoadCase? lc, bool matched) DetectDeadLoadCase()
         {
             var cases = new FilteredElementCollector(_doc)
                 .OfClass(typeof(LoadCase))
@@ -1004,74 +1145,39 @@ namespace StructuralTools.Engine
                 if (n.Contains("dead") || n.Contains("dl"))
                     return (c, true);
             }
-            return cases.Count > 0 ? (cases[0], false) : (null, false);
+            return cases.Count > 0 ? (cases[0], false) : ((LoadCase?)null, false);
         }
 
-        private LineLoadType GetDefaultLoadType() =>
+        private LineLoadType? GetDefaultLoadType() =>
             new FilteredElementCollector(_doc)
                 .OfClass(typeof(LineLoadType))
                 .Cast<LineLoadType>()
                 .FirstOrDefault();
 
-        private List<LoadCase> GetAllLoadCases() =>
-            new FilteredElementCollector(_doc)
-                .OfClass(typeof(LoadCase))
-                .Cast<LoadCase>()
-                .ToList();
-
-        private static string ElemLabel(Element elem)
+        private static string GetElemLabel(Element? elem)
         {
             if (elem == null) return "—";
-            try   { return $"{elem.Name} (ID {elem.Id})"; }
+            try { return $"{elem.Name} (ID {elem.Id})"; }
             catch { return $"{elem.GetType().Name} (ID {elem.Id})"; }
         }
 
-        private static string HostLabel(Element elem)
+        private static string GetHostLabel(Element? elem)
         {
             if (elem == null) return "—";
             string kind = ClassifyHost(elem) == "beam" ? "Beam" : "Floor/Panel";
-            return $"{kind} · {ElemLabel(elem)}";
+            return $"{kind} · {GetElemLabel(elem)}";
+        }
+
+        private void SetStatusBar(string message)
+        {
+            _uiApp.StatusBarText = message;
+        }
+
+        private void ClearStatusBar()
+        {
+            _uiApp.StatusBarText = "Ready";
         }
 
         #endregion
-
-        #region Unit Conversion Helpers
-
-        private static double InternalLenToM(double ft)
-        {
-            try   { return UnitUtils.ConvertFromInternalUnits(ft, UnitTypeId.Meters); }
-            catch { return ft * 0.3048; }
-        }
-
-        private static double InternalUnitWeightToKnM3(double v)
-        {
-            try   { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilonewtonsPerCubicMeter); }
-            catch { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilonewtonsPerCubicMeter); }
-        }
-
-        private static double InternalDensityToKgM3(double v)
-        {
-            try   { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilogramsPerCubicMeter); }
-            catch { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilogramsPerCubicMeter); }
-        }
-
-        private static double KnPerMToInternal(double v)
-        {
-            try   { return UnitUtils.ConvertToInternalUnits(v, UnitTypeId.KilonewtonsPerMeter); }
-            catch { return UnitUtils.ConvertToInternalUnits(v, UnitTypeId.KilonewtonsPerMeter); }
-        }
-
-        #endregion
-    }
-
-    /// <summary>
-    /// Selection filter that accepts Wall elements and RevitLinkInstances only.
-    /// </summary>
-    public class WallOrLinkFilter : ISelectionFilter
-    {
-        public bool AllowElement(Element elem) =>
-            (elem is Wall) || (elem is RevitLinkInstance);
-
-        public bool AllowReference(Reference reference, XYZ position) => true;
     }
 }
