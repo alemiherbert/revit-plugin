@@ -9,6 +9,7 @@ using System.Windows.Media;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
+using StructuralTools.Models;
 
 namespace StructuralTools.UI
 {
@@ -26,8 +27,8 @@ namespace StructuralTools.UI
         public WallLoadDialog(
             List<WallEntry> walls,
             Element host,
-            (LoadCase lc, bool matched) lcInfo,
-            List<LoadCase> allCases,
+            (Autodesk.Revit.DB.Structure.LoadCase lc, bool matched) lcInfo,
+            List<Autodesk.Revit.DB.Structure.LoadCase> allCases,
             string lastStatus,
             bool applyFudge,
             string fudgePctText)
