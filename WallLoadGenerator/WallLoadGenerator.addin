@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Wall Load Generator</Name>
+    <Assembly>WallLoadGenerator.dll</Assembly>
+    <AddInId>E5C7A8B2-4D3F-4E9A-B1C6-8F2D5A7E9C3B</AddInId>
+    <FullClassName>WallLoadGenerator.App</FullClassName>
+    <Vendor>Structural Tools</Vendor>
+    <VendorId>ST</VendorId>
+    <SupportedBuildsMedium>2027</SupportedBuildsMedium>
+    <LoadManually>false</LoadManually>
+  </AddIn>
+</RevitAddIns>
