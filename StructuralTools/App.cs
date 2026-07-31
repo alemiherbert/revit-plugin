@@ -49,7 +49,10 @@ public class App : IExternalApplication
                 string icon16Path = Path.Combine(resourcePath, "Resources", "Generate16.png");
                 
                 if (File.Exists(icon32Path))
-                    generateBtn.SetLargeImage(new BitmapImage(new Uri(icon32Path)));
+                {
+                    var largeImage = new BitmapImage(new Uri(icon32Path));
+                    generateBtn.LargeImage = largeImage;
+                }
                 if (File.Exists(icon16Path))
                     generateBtn.Image = new BitmapImage(new Uri(icon16Path));
             }
@@ -99,7 +102,10 @@ public class App : IExternalApplication
                 string icon16Path = Path.Combine(resourcePath, "Resources", "Staircase16.png");
                 
                 if (File.Exists(icon32Path))
-                    staircaseBtn.SetLargeImage(new BitmapImage(new Uri(icon32Path)));
+                {
+                    var largeImage = new BitmapImage(new Uri(icon32Path));
+                    staircaseBtn.LargeImage = largeImage;
+                }
                 if (File.Exists(icon16Path))
                     staircaseBtn.Image = new BitmapImage(new Uri(icon16Path));
             }

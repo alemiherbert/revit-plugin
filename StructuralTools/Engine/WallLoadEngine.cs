@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
-using Autodesk.Revit.Exceptions;
+using RevitOperationCanceledException = Autodesk.Revit.Exceptions.OperationCanceledException;
+using RevitInvalidOperationException = Autodesk.Revit.Exceptions.InvalidOperationException;
 
 using StructuralTools.Models;
 
@@ -107,8 +109,8 @@ namespace StructuralTools.Engine
                 {
                     bool   isLinked  = r.LinkedElementId != ElementId.InvalidElementId;
                     string dedupeKey = isLinked
-                        ? $"link:{r.ElementId.IntegerValue}:{r.LinkedElementId.IntegerValue}"
-                        : $"host:{r.ElementId.IntegerValue}";
+                        ? $"link:{r.ElementId.Value}:{r.LinkedElementId.Value}"
+                        : $"host:{r.ElementId.Value}";
 
                     if (seenKeys.Contains(dedupeKey)) { duplicates++; continue; }
 
@@ -154,7 +156,7 @@ namespace StructuralTools.Engine
                 string suffix = notes.Count > 0 ? "  " + string.Join("; ", notes) + "." : "";
                 return $"{newWalls.Count} wall(s) selected.{suffix}";
             }
-            catch (OperationCanceledException)
+            catch (RevitOperationCanceledException)
             {
                 return "Wall selection was cancelled.";
             }
@@ -180,7 +182,7 @@ namespace StructuralTools.Engine
                 _hostElement = elem;
                 return null;
             }
-            catch (OperationCanceledException)
+            catch (RevitOperationCanceledException)
             {
                 return "Host selection was cancelled.";
             }
@@ -763,7 +765,7 @@ namespace StructuralTools.Engine
             var ae = _doc.GetElement(analyticalId);
             if (ae == null) return null;
 
-            var member = ae as AnalyticalMember;
+            var member = ae as Autodesk.Revit.DB.Structure.AnalyticalMember;
             if (member != null) return member.GetCurve();
 
             var analElem = ae as AnalyticalElement;
@@ -780,7 +782,7 @@ namespace StructuralTools.Engine
                 if (lv != null)
                 {
                     double offsetFt = 0.0;
-                    var p = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHT_ABOVE_LEVEL_PARAM)
+                    var p = floor.get_Parameter(BuiltInParameter.FLOOR_ELEVATION_PARAM)
                          ?? floor.LookupParameter("Height Offset From Level");
                     if (p != null && p.HasValue) offsetFt = p.AsDouble();
                     return lv.Elevation + offsetFt;
@@ -949,7 +951,7 @@ namespace StructuralTools.Engine
                 insertIds = wall.FindInserts(true, false, true, true);
                 return true;
             }
-            catch (InvalidOperationException)
+            catch (RevitInvalidOperationException)
             {
                 return false;
             }
@@ -1035,19 +1037,19 @@ namespace StructuralTools.Engine
         private static double InternalUnitWeightToKnM3(double v)
         {
             try   { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilonewtonsPerCubicMeter); }
-            catch { return UnitUtils.ConvertFromInternalUnits(v, DisplayUnitType.DUT_KILONEWTONS_PER_CUBIC_METER); }
+            catch { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilonewtonsPerCubicMeter); }
         }
 
         private static double InternalDensityToKgM3(double v)
         {
             try   { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilogramsPerCubicMeter); }
-            catch { return UnitUtils.ConvertFromInternalUnits(v, DisplayUnitType.DUT_KILOGRAMS_PER_CUBIC_METER); }
+            catch { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilogramsPerCubicMeter); }
         }
 
         private static double KnPerMToInternal(double v)
         {
             try   { return UnitUtils.ConvertToInternalUnits(v, UnitTypeId.KilonewtonsPerMeter); }
-            catch { return UnitUtils.ConvertToInternalUnits(v, DisplayUnitType.DUT_KILONEWTONS_PER_METER); }
+            catch { return UnitUtils.ConvertToInternalUnits(v, UnitTypeId.KilonewtonsPerMeter); }
         }
 
         #endregion

@@ -178,7 +178,7 @@ namespace StructuralTools.UI
             btnClose.Click += (s, e) => { Result = WallLoadDialogResult.Cancel; Close(); };
         }
 
-        private static SolidColorBrush Brush(byte r, byte g, byte b) => new SolidColorBrush(Color.FromRgb(r, g, b));
+        private static SolidColorBrush Brush(byte r, byte g, byte b) => new SolidColorBrush(System.Windows.Media.Color.FromRgb(r, g, b));
 
         private static Button Btn(string text, (int r, int g, int b)? bg = null, (int r, int g, int b)? fg = null,
             bool bold = false, bool enabled = true, double width = double.NaN)
@@ -203,14 +203,14 @@ namespace StructuralTools.UI
         {
             var border = new Border
             {
-                BorderBrush = new SolidColorBrush(Color.FromRgb(210, 215, 225)),
+                BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(210, 215, 225)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
                 Margin = new Thickness(0, 6, 0, 0),
                 Padding = new Thickness(12, 10, 12, 10)
             };
             var sp = new StackPanel();
-            sp.Children.Add(new TextBlock { Text = title, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(100, 110, 130)), Margin = new Thickness(0, 0, 0, 6) });
+            sp.Children.Add(new TextBlock { Text = title, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(100, 110, 130)), Margin = new Thickness(0, 0, 0, 6) });
             border.Child = sp;
             return (border, sp);
         }
