@@ -11,8 +11,10 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
 using RevitOperationCanceledException = Autodesk.Revit.Exceptions.OperationCanceledException;
 using RevitInvalidOperationException = Autodesk.Revit.Exceptions.InvalidOperationException;
+using DB = Autodesk.Revit.DB;
 
 using StructuralTools.Models;
+using StructuralTools.UI;
 
 namespace StructuralTools.Engine
 {
@@ -137,7 +139,7 @@ namespace StructuralTools.Engine
                         entry = new WallEntry
                         {
                             Wall      = (Wall)elem,
-                            Transform = Transform.Identity,
+                            Transform = Autodesk.Revit.DB.Transform.Identity,
                             Source    = null
                         };
                     }
@@ -279,9 +281,9 @@ namespace StructuralTools.Engine
 
                 foreach (var entry in wallItems)
                 {
-                    Wall      wall      = entry.Wall;
-                    Transform transform = entry.Transform ?? Transform.Identity;
-                    string    source    = entry.Source;
+                    Wall            wall      = entry.Wall;
+                    DB.Transform    transform = entry.Transform ?? DB.Transform.Identity;
+                    string          source    = entry.Source;
 
                     if (wall == null) continue;
 
@@ -782,7 +784,7 @@ namespace StructuralTools.Engine
                 if (lv != null)
                 {
                     double offsetFt = 0.0;
-                    var p = floor.get_Parameter(BuiltInParameter.FLOOR_ELEVATION_PARAM)
+                    var p = floor.get_Parameter(BuiltInParameter.LEVEL_OFFSET_PARAM)
                          ?? floor.LookupParameter("Height Offset From Level");
                     if (p != null && p.HasValue) offsetFt = p.AsDouble();
                     return lv.Elevation + offsetFt;
