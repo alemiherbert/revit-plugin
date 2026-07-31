@@ -1,111 +1,70 @@
 ```
-# Build artifacts
+# Compiled and build artifacts
+*.pyc
+__pycache__/
+*.o
 *.obj
 *.exe
 *.dll
-*.pdb
-*.userprefs
-*.useroptions
-*.suo
-*.user
-*.aps
-*.ncb
-*.opt
-*.plg
-*.bsc
-*.ilk
-*.idb
-*.ipch
-*.pch
-*.res
-*.rsp
-*.pgc
-*.pgd
-*.tlog
-*.log
-*.nupkg
-*.snupkg
-*.cache
-*.compiled
-*.dll.config
-*.exe.config
-*.xml.config
-*.manifest
-*.exp
-*.lib
-*.iobj
-*.ipdb
-*.builds
-*.built
-*.log
-*.lastcodeanalysissucceeded
-*.VC.db
-*.VC.VC.opendb
-
-# Output directories
-bin/
-obj/
-Out/
-Output/
-_build/
-_dist/
-_output/
-_deploy/
-
-# Dependencies
-packages/
-node_modules/
-vendor/
-lib/
-external/
-
-# IDE specific
-.vs/
-.vscode/
-.idea/
-*.userprefs
-*.useroptions
-*.suo
-*.user
-*.sln.docstates
-*.csproj.user
-*.vbproj.user
-*.fsproj.user
-
-# OS generated
-.DS_Store
-Thumbs.db
-desktop.ini
-ehthumbs.db
-Icon?
-._*
-
-# Logs
-*.log
+*.so
+*.class
 *.out
 
-# Environment
+# Dependencies
+node_modules/
+venv/
+.venv/
 .env
 .env.local
-*.env
 *.env.*
 
-# Test and coverage
+# Build directories
+dist/
+build/
+target/
+*.jar
+*.war
+*.zip
+*.tar.gz
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+*.~
+Thumbs.db
+.DS_Store
+
+# Coverage reports
 coverage/
 htmlcov/
-.nyc_output/
 .coverage
-*.gcov
-*.lcov
-*.lst
 
-# Temporary files
-*.tmp
-*.temp
-*.bak
-*.backup
-*~
-._*
+# Editors and IDEs
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Python specific
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
+
+# System files
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Icon?
 ```

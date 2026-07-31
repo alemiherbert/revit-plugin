@@ -9,7 +9,6 @@ namespace StructuralTools;
 /// <summary>
 /// Main application entry point for the Structural Tools add-in.
 /// Implements IExternalApplication to integrate with Revit's ribbon interface.
-/// Creates "Structural Tools" tab with Wall Loads and Utilities panels.
 /// </summary>
 public class App : IExternalApplication
 {
@@ -37,14 +36,14 @@ public class App : IExternalApplication
                     "GenerateWallLoads",
                     "Generate",
                     assemblyPath,
-                    "StructuralTools.GenerateWallLoads"
+                    "StructuralTools.Commands.GenerateWallLoadsCommand"
                 )
             ) as PushButton;
             
             if (generateBtn != null)
             {
-                generateBtn.ToolTip = "Generate line loads from walls to floors";
-                generateBtn.LongDescription = "Scans selected walls and creates analytical line loads on supporting floors based on material density and wall geometry.";
+                generateBtn.ToolTip = "Generate line loads from walls";
+                generateBtn.LongDescription = "Scans selected walls and creates analytical line loads on supporting beams or floors based on material density and wall geometry.";
                 
                 string icon32Path = Path.Combine(resourcePath, "Resources", "Generate32.png");
                 string icon16Path = Path.Combine(resourcePath, "Resources", "Generate16.png");
@@ -93,7 +92,7 @@ public class App : IExternalApplication
             
             if (staircaseBtn != null)
             {
-                staircaseBtn.ToolTip = "Convert staircase elements to analytical model";
+                staircaseBtn.ToolTip = "Convert staircase to analytical model";
                 staircaseBtn.LongDescription = "Converts selected staircase elements into analytical model components for structural analysis.";
                 
                 string icon32Path = Path.Combine(resourcePath, "Resources", "Staircase32.png");
@@ -105,15 +104,10 @@ public class App : IExternalApplication
                     staircaseBtn.Image = new BitmapImage(new Uri(icon16Path));
             }
             
-            // Initialize logging
-            Services.LoggingService.Initialize();
-            Services.LoggingService.Info("Structural Tools started successfully");
-            
             return Result.Succeeded;
         }
         catch (Exception ex)
         {
-            Services.LoggingService.Error($"Failed to start Structural Tools: {ex.Message}");
             TaskDialog.Show("Structural Tools - Error", 
                 $"Failed to initialize add-in:\n{ex.Message}");
             return Result.Failed;
@@ -122,8 +116,6 @@ public class App : IExternalApplication
 
     public Result OnShutdown(UIControlledApplication application)
     {
-        Services.LoggingService.Info("Structural Tools shutting down");
-        Services.LoggingService.Dispose();
         return Result.Succeeded;
     }
 }

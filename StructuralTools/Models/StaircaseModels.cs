@@ -9,7 +9,7 @@ public class StaircaseInfo
 {
     public ElementId StairId { get; set; }
     public string StairName { get; set; } = string.Empty;
-    public Autodesk.Revit.DB.StairsType? StairType { get; set; }
+    public ElementId? StairTypeId { get; set; }
     public IList<XYZ> TreadPoints { get; set; } = new List<XYZ>();
     public IList<XYZ> StringerLines { get; set; } = new List<XYZ>();
     public XYZ LandingLocation { get; set; } = XYZ.Zero;
