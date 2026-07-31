@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Structural Tools</Name>
+    <Assembly>StructuralTools.dll</Assembly>
+    <AddInId>3F2A8B5C-7D9E-4A1F-B6C3-8E4D2F1A9C7B</AddInId>
+    <FullClassName>StructuralTools.App</FullClassName>
+    <Vendor>Structural Tools</Vendor>
+    <VendorId>StructuralTools</VendorId>
+    <SupportedBuilds>2027</SupportedBuilds>
+  </AddIn>
+</RevitAddIns>
