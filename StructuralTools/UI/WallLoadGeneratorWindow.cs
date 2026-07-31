@@ -2,19 +2,19 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 
-namespace WallLoadGenerator.UI;
+namespace StructuralTools.UI;
 
 /// <summary>
 /// Main window for the Wall Load Generator.
 /// Provides a compact, native Revit-like interface.
 /// </summary>
-public partial class MainWindow : Window
+public partial class WallLoadGeneratorWindow : Window
 {
     private readonly UIApplication _uiApp;
     private readonly Document _doc;
-    private Models.Settings _settings = new();
+    private Models.WallLoadSettings _settings = new();
 
-    public MainWindow(UIApplication uiApp, Document doc)
+    public WallLoadGeneratorWindow(UIApplication uiApp, Document doc)
     {
         _uiApp = uiApp;
         _doc = doc;
@@ -27,7 +27,7 @@ public partial class MainWindow : Window
     private void InitializeComponent()
     {
         // Window properties
-        Title = "Wall Load Generator";
+        Title = "Wall to Line Load Generator";
         Width = 420;
         Height = 580;
         ResizeMode = ResizeMode.NoResize;
@@ -282,7 +282,7 @@ public partial class MainWindow : Window
                 var loadService = new Services.LoadCreationService(_doc, _settings);
                 
                 // Get load case Id (placeholder - would need to get actual load case)
-                var loadCaseId = ElementId.InvalidElementId; // TODO: Get actual load case
+                var loadCaseId = ElementId.InvalidElementId;
                 
                 var result = loadService.CreateLoads(walls, loadCaseId);
                 

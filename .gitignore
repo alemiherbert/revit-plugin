@@ -6,48 +6,42 @@ obj/
 *.exe
 *.pdb
 *.nupkg
-*.zip
+**/Debug/
+**/Release/
 
 # Dependencies
 packages/
 node_modules/
+vendor/
 
 # Logs
 *.log
+**/logs/
 
-# User-specific files
-*.user
-*.userosscache
-*.suo
+# Environment
+.env
+.env.local
 *.userprefs
-
-# Environment specific settings
-.vs/
-!.vs/settings.json
-!.vs/launchSettings.json
-.vscode/
-!/.vscode/settings.json
-!/.vscode/tasks.json
-!/.vscode/launch.json
-!/.vscode/extensions.json
 
 # OS generated files
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
+ehthumbs.db
+Icon?
+desktop.ini
 
-# Configuration files that might store secrets
-.config/
-!/.config/dotnet-tools.json
+# Visual Studio
+.vs/
+*.user
+*.userosscache
+*.suo
+*.csproj.user
 
-# Test results
-TestResults/
+# Rider
+.idea/
 
-# IDE specific
-*.VC.db
-*.VC.VC.opendb
+# Temporary files
+*.tmp
+*~
+```
 ```
