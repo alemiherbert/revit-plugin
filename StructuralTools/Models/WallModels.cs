@@ -60,16 +60,4 @@ namespace StructuralTools.Models
         public int LcFails { get; set; } = 0;
     }
 
-    /// <summary>
-    /// Load case types supported by the generator.
-    /// </summary>
-    public enum LoadCaseType
-    {
-        Dead,
-        SuperDead,
-        Live,
-        Partition,
-        Wind,
-        Seismic
-    }
 }

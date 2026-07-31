@@ -1,7 +1,6 @@
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.Attributes;
-using System.Windows;
 
 namespace StructuralTools.Commands;
 
@@ -18,24 +17,16 @@ public class GenerateWallLoadsCommand : IExternalCommand
         try
         {
             UIApplication uiApp = commandData.Application;
-            UIDocument uiDoc = uiApp.ActiveUIDocument;
-            Document doc = uiDoc.Document;
-
-            // Show main window for wall load generation
-            var mainWindow = new UI.WallLoadGeneratorWindow(uiApp, doc);
-            mainWindow.Owner = Application.Current.MainWindow;
             
-            if (mainWindow.ShowDialog() == true)
-            {
-                return Result.Succeeded;
-            }
+            // Create and run the wall load engine
+            var engine = new Engine.WallLoadEngine(uiApp);
+            engine.Run();
             
-            return Result.Cancelled;
+            return Result.Succeeded;
         }
         catch (Exception ex)
         {
             message = $"Error generating wall loads: {ex.Message}\n\n{ex.StackTrace}";
-            Services.LoggingService.Error(message);
             TaskDialog.Show("Structural Tools - Error", message);
             return Result.Failed;
         }
@@ -50,9 +41,7 @@ public class WallLoadSettingsCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
     {
-        var settingsWindow = new UI.WallLoadSettingsWindow();
-        settingsWindow.Owner = Application.Current.MainWindow;
-        settingsWindow.ShowDialog();
+        TaskDialog.Show("Settings", "Settings dialog coming soon.");
         return Result.Succeeded;
     }
 }
@@ -66,29 +55,7 @@ public class StaircaseToAnalyticalCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
     {
-        try
-        {
-            UIApplication uiApp = commandData.Application;
-            UIDocument uiDoc = uiApp.ActiveUIDocument;
-            Document doc = uiDoc.Document;
-
-            // Show main window for staircase conversion
-            var staircaseWindow = new UI.StaircaseToAnalyticalWindow(uiApp, doc);
-            staircaseWindow.Owner = Application.Current.MainWindow;
-            
-            if (staircaseWindow.ShowDialog() == true)
-            {
-                return Result.Succeeded;
-            }
-            
-            return Result.Cancelled;
-        }
-        catch (Exception ex)
-        {
-            message = $"Error converting staircase: {ex.Message}\n\n{ex.StackTrace}";
-            Services.LoggingService.Error(message);
-            TaskDialog.Show("Structural Tools - Error", message);
-            return Result.Failed;
-        }
+        TaskDialog.Show("Staircase Tool", "Staircase to analytical model tool coming soon.");
+        return Result.Succeeded;
     }
 }
