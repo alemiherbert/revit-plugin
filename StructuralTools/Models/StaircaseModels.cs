@@ -7,7 +7,7 @@ namespace StructuralTools.Models;
 /// </summary>
 public class StaircaseInfo
 {
-    public ElementId StairId { get; set; }
+    public ElementId StairId { get; set; } = ElementId.InvalidElementId;
     public string StairName { get; set; } = string.Empty;
     public ElementId? StairTypeId { get; set; }
     public IList<XYZ> TreadPoints { get; set; } = new List<XYZ>();
@@ -32,7 +32,7 @@ public class AnalyticalMember
     public AnalyticalMemberType MemberType { get; set; } = AnalyticalMemberType.Beam;
     public ElementId? MaterialId { get; set; }
     public string Description { get; set; } = string.Empty;
-    public ElementId SourceStairId { get; set; }
+    public ElementId SourceStairId { get; set; } = ElementId.InvalidElementId;
 }
 
 /// <summary>

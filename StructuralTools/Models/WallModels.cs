@@ -10,9 +10,9 @@ namespace StructuralTools.Models
     /// </summary>
     public class WallInfo
     {
-        public Wall Wall { get; set; }
+        public Wall? Wall { get; set; }
         public Transform Transform { get; set; } = Transform.Identity;
-        public string Source { get; set; }
+        public string? Source { get; set; }
     }
 
     /// <summary>
@@ -20,9 +20,9 @@ namespace StructuralTools.Models
     /// </summary>
     public struct WallEntry
     {
-        public Wall Wall;
+        public Wall? Wall;
         public Transform Transform;
-        public string Source;
+        public string? Source;
 
         // Conversion to WallInfo
         public WallInfo ToWallInfo() => new WallInfo
@@ -38,13 +38,13 @@ namespace StructuralTools.Models
     /// </summary>
     public class WallLoad
     {
-        public Curve Curve { get; set; }
-        public XYZ ForceVector { get; set; }
+        public Curve? Curve { get; set; }
+        public XYZ? ForceVector { get; set; }
         public double Magnitude { get; set; } // kN/m
-        public ElementId HostAnalyticalId { get; set; }
-        public LoadCase LoadCase { get; set; }
-        public LineLoadType LoadType { get; set; }
-        public string WallId { get; set; }
+        public ElementId? HostAnalyticalId { get; set; }
+        public Autodesk.Revit.DB.Structure.LoadCase? LoadCase { get; set; }
+        public LineLoadType? LoadType { get; set; }
+        public string? WallId { get; set; }
         public double T0 { get; set; }
         public double T1 { get; set; }
     }
