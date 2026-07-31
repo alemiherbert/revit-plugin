@@ -6,31 +6,12 @@ namespace StructuralTools.Models
 {
     /// <summary>
     /// Represents a wall element with its transform (for linked models) and source document.
-    /// Mirrors the original WallEntry struct from the macro.
-    /// </summary>
-    public class WallInfo
-    {
-        public Wall? Wall { get; set; }
-        public Transform Transform { get; set; } = Transform.Identity;
-        public string? Source { get; set; }
-    }
-
-    /// <summary>
-    /// Alias for backward compatibility with existing code.
     /// </summary>
     public struct WallEntry
     {
         public Wall? Wall;
         public Transform Transform;
         public string? Source;
-
-        // Conversion to WallInfo
-        public WallInfo ToWallInfo() => new WallInfo
-        {
-            Wall = this.Wall,
-            Transform = this.Transform,
-            Source = this.Source
-        };
     }
 
     /// <summary>

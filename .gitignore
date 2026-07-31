@@ -4,44 +4,42 @@
 *.exe
 *.dll
 *.so
-*.class
-*.pyc
-__pycache__/
+*.a
+*.lib
+*.out
 
 # Dependencies
+packages/
+nuget/
 node_modules/
 venv/
 .venv/
-.env
-.env.local
-*.env.*
 
-# Editor/IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-
-# Logs
+# Logs and temp files
 *.log
+*.tmp
+*.temp
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
+# Editors
+.vs/
+.idea/
+*.userprefs
+*.user
 
-# Distribution
-dist/
-build/
-target/
-.gradle/
-
-# Python cache
-.mypy_cache/
-.pytest_cache/
-
-# System files
+# OS generated files
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Configuration
+*.config
+appsettings*.json
+
+# Compiled files
+bin/
+obj/
+Debug/
+Release/
+x64/
+x86/
 ```

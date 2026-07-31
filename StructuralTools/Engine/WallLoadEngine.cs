@@ -7,29 +7,31 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
 using RevitOperationCanceledException = Autodesk.Revit.Exceptions.OperationCanceledException;
 using RevitInvalidOperationException = Autodesk.Revit.Exceptions.InvalidOperationException;
+using StructuralTools.Models;
 
 namespace StructuralTools.Engine
 {
-    public struct WallEntry
-    {
-        public Wall Wall;
-        public DB.Transform Transform;
-        public string? Source;
-    }
-
-    public class LoadResult
-    {
-        public List<LineLoad> Created = new List<LineLoad>();
-        public List<string> Log = new List<string>();
-        public int Errors = 0;
-        public int LcFails = 0;
-    }
-
     public class WallLoadEngine
     {
+        // Configuration constants
         private const double DEFAULT_FUDGE_FACTOR_PCT = 10.0;
         private const bool DEFAULT_APPLY_FUDGE = true;
         private const double GRAVITY_M_S2 = 9.80665;
+        
+        // Tolerance constants (all in Revit internal units: feet)
+        private const double FT_PER_M = 3.28084;
+        private const double MIN_WALL_HEIGHT_FT = 0.001;           // ~0.3mm
+        private const double MIN_CURVE_LENGTH_FT = 0.0328;         // ~10mm
+        private const double MIN_SEGMENT_LENGTH_M = 0.010;         // 10mm
+        private const double MIN_LOAD_SEGMENT_LENGTH_FT = 0.0025;  // ~0.76mm
+        private const double MIN_NET_HEIGHT_M = 0.01;              // 10mm
+        private const double MIN_LOAD_VALUE = 0.001;               // kN/m
+        private const double MIN_OPENING_HEIGHT_FT = 0.001;        // ~0.3mm
+        private const double MIN_PARAM_RANGE = 0.001;              // parameter tolerance
+        private const double MIN_NORMAL_LENGTH = 0.001;            // vector length tolerance
+        
+        // Default concrete density (kN/m³)
+        private const double DEFAULT_CONCRETE_DENSITY_KN_M3 = 24.0;
 
         private readonly UIApplication _uiApp;
         private readonly UIDocument _uiDoc;
@@ -216,7 +218,7 @@ namespace StructuralTools.Engine
                         entry = new WallEntry
                         {
                             Wall = (Wall)elem,
-                            Transform = DB.Transform.Identity,
+                            Transform = linkInst.GetTotalTransform(),
                             Source = linkDoc.Title
                         };
                     }
@@ -227,7 +229,7 @@ namespace StructuralTools.Engine
                         entry = new WallEntry
                         {
                             Wall = (Wall)elem,
-                            Transform = DB.Transform.Identity,
+                            Transform = Transform.Identity,
                             Source = null
                         };
                     }
@@ -326,7 +328,7 @@ namespace StructuralTools.Engine
             
             var result = CreateLoads(
                 _selectedWalls, _hostElement,
-                loadCase, 24.0, defaultLoadType,
+                loadCase, DEFAULT_CONCRETE_DENSITY_KN_M3, defaultLoadType,
                 fudgeMultiplier);
 
             int linkedCount = _selectedWalls.Count(w => w.Source != null);
@@ -386,7 +388,7 @@ namespace StructuralTools.Engine
                 foreach (var entry in wallItems)
                 {
                     Wall wall = entry.Wall;
-                    DB.Transform transform = entry.Transform ?? DB.Transform.Identity;
+                    Transform transform = entry.Transform;
                     string? source = entry.Source;
 
                     if (wall == null) continue;
@@ -402,7 +404,7 @@ namespace StructuralTools.Engine
                     }
 
                     double wallHeightFt = GetActualWallHeight(wall, wid, res.Log);
-                    if (wallHeightFt < 0.001)
+                    if (wallHeightFt < MIN_WALL_HEIGHT_FT)
                     {
                         Log($"Wall ID {wid}: Effective height is zero — skipping.", "WARNING");
                         continue;
@@ -416,7 +418,7 @@ namespace StructuralTools.Engine
                     }
 
                     double clLen = lc.Length;
-                    if (clLen < 0.0328) continue;
+                    if (clLen < MIN_CURVE_LENGTH_FT) continue;
 
                     double areaW = CalcWallAreaWeight(wall, fallbackGamma, res.Log, wid);
 
@@ -462,7 +464,7 @@ namespace StructuralTools.Engine
                     for (int i = 0; i < tKnots.Count - 1; i++)
                     {
                         double t0 = tKnots[i], t1 = tKnots[i + 1];
-                        if (InternalLenToM((t1 - t0) * clLen) < 0.010) continue;
+                        if (InternalLenToM((t1 - t0) * clLen) < MIN_SEGMENT_LENGTH_M) continue;
 
                         double tMid = (t0 + t1) / 2.0;
                         double dh = openingData
@@ -470,17 +472,17 @@ namespace StructuralTools.Engine
                             .Sum(op => op.h);
 
                         double netHm = InternalLenToM(Math.Max(0.0, wallHeightFt - dh));
-                        if (netHm < 0.01) continue;
+                        if (netHm < MIN_NET_HEIGHT_M) continue;
 
                         double loadVal = areaW * netHm;
-                        if (loadVal <= 0.001) continue;
+                        if (loadVal <= MIN_LOAD_VALUE) continue;
                         loadVal *= fudgeMultiplier;
 
                         foreach (var sc in GetSubCurve(lc, t0, t1))
                         {
-                            if (sc.Length < 0.0025) continue;
+                            if (sc.Length < MIN_LOAD_SEGMENT_LENGTH_FT) continue;
 
-                            Curve raw = (transform != null && !transform.IsIdentity)
+                            Curve raw = !transform.IsIdentity
                                 ? sc.CreateTransformed(transform)
                                 : sc;
 
@@ -541,7 +543,7 @@ namespace StructuralTools.Engine
             if (p != null && p.HasValue)
             {
                 double h = p.AsDouble();
-                if (h > 0.001)
+                if (h > MIN_OPENING_HEIGHT_FT)
                 {
                     log?.Add($"[INFO] Wall {wid}: Used WALL_USER_HEIGHT_PARAM height ({InternalLenToM(h):F3} m).");
                     return h;
@@ -572,7 +574,7 @@ namespace StructuralTools.Engine
                     if (sbb != null)
                     {
                         double h = sbb.Max.Z - sbb.Min.Z;
-                        if (h > 0.001)
+                        if (h > MIN_OPENING_HEIGHT_FT)
                         {
                             log?.Add($"[INFO] Wall {wid}: Used geometry solid bounding box height ({InternalLenToM(h):F3} m).");
                             return h;
@@ -685,7 +687,7 @@ namespace StructuralTools.Engine
                             if (t > tMax) { tMax = t; any = true; }
                         }
 
-                        if (any && tMax - tMin > 0.001 && oh > 0.0)
+                        if (any && tMax - tMin > MIN_PARAM_RANGE && oh > 0.0)
                             return (tMin, tMax, oh);
                     }
                 }
@@ -726,7 +728,7 @@ namespace StructuralTools.Engine
                 if (t > tMax2) { tMax2 = t; any2 = true; }
             }
 
-            if (any2 && tMax2 - tMin2 > 0.001)
+            if (any2 && tMax2 - tMin2 > MIN_PARAM_RANGE)
                 return (tMin2, tMax2, oh2);
 
             return null;
@@ -1053,7 +1055,7 @@ namespace StructuralTools.Engine
                     XYZ normal = bestFace.ComputeNormal(uvCtr);
                     XYZ origin = bestFace.Evaluate(uvCtr);
 
-                    if (normal != null && normal.GetLength() > 0.001)
+                    if (normal != null && normal.GetLength() > MIN_NORMAL_LENGTH)
                     {
                         Plane plane = Plane.CreateByNormalAndOrigin(normal.Normalize(), origin);
                         XYZ np0 = ProjectPointOntoPlane(p0, plane);
