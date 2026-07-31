@@ -45,16 +45,18 @@ public class App : IExternalApplication
                 generateBtn.ToolTip = "Generate line loads from walls";
                 generateBtn.LongDescription = "Scans selected walls and creates analytical line loads on supporting beams or floors based on material density and wall geometry.";
                 
-                string icon32Path = Path.Combine(resourcePath, "Resources", "Generate32.png");
-                string icon16Path = Path.Combine(resourcePath, "Resources", "Generate16.png");
-                
-                if (File.Exists(icon32Path))
+                // Load icons as embedded resources using Pack URI
+                try
                 {
-                    var largeImage = new BitmapImage(new Uri(icon32Path));
+                    var largeImage = new BitmapImage(new Uri("pack://application:,,,/StructuralTools;component/Resources/Generate32.png"));
                     generateBtn.LargeImage = largeImage;
+                    var smallImage = new BitmapImage(new Uri("pack://application:,,,/StructuralTools;component/Resources/Generate16.png"));
+                    generateBtn.Image = smallImage;
                 }
-                if (File.Exists(icon16Path))
-                    generateBtn.Image = new BitmapImage(new Uri(icon16Path));
+                catch
+                {
+                    // Icons failed to load, continue without them
+                }
             }
             
             // Settings button
@@ -70,9 +72,16 @@ public class App : IExternalApplication
             if (settingsBtn != null)
             {
                 settingsBtn.ToolTip = "Configure wall load generation settings";
-                string iconPath = Path.Combine(resourcePath, "Resources", "Logo.png");
-                if (File.Exists(iconPath))
-                    settingsBtn.Image = new BitmapImage(new Uri(iconPath));
+                // Load icon as embedded resource using Pack URI
+                try
+                {
+                    var iconImage = new BitmapImage(new Uri("pack://application:,,,/StructuralTools;component/Resources/Logo.png"));
+                    settingsBtn.Image = iconImage;
+                }
+                catch
+                {
+                    // Icon failed to load, continue without it
+                }
             }
             
             // Add separator
@@ -98,16 +107,18 @@ public class App : IExternalApplication
                 staircaseBtn.ToolTip = "Convert staircase to analytical model";
                 staircaseBtn.LongDescription = "Converts selected staircase elements into analytical model components for structural analysis.";
                 
-                string icon32Path = Path.Combine(resourcePath, "Resources", "Staircase32.png");
-                string icon16Path = Path.Combine(resourcePath, "Resources", "Staircase16.png");
-                
-                if (File.Exists(icon32Path))
+                // Load icons as embedded resources using Pack URI
+                try
                 {
-                    var largeImage = new BitmapImage(new Uri(icon32Path));
+                    var largeImage = new BitmapImage(new Uri("pack://application:,,,/StructuralTools;component/Resources/Staircase32.png"));
                     staircaseBtn.LargeImage = largeImage;
+                    var smallImage = new BitmapImage(new Uri("pack://application:,,,/StructuralTools;component/Resources/Staircase16.png"));
+                    staircaseBtn.Image = smallImage;
                 }
-                if (File.Exists(icon16Path))
-                    staircaseBtn.Image = new BitmapImage(new Uri(icon16Path));
+                catch
+                {
+                    // Icons failed to load, continue without them
+                }
             }
             
             return Result.Succeeded;

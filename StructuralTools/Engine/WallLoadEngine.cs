@@ -46,7 +46,7 @@ namespace StructuralTools.Engine
         public WallLoadEngine(UIApplication uiApp)
         {
             _uiApp = uiApp;
-            _uiDoc = uiApp.ActiveUIDocument;
+            _uiDoc = uiApp.ActiveUIDocument ?? throw new InvalidOperationException("No active document. Please open a Revit document first.");
             _doc = _uiDoc.Document;
             _materialWeightCache = new Dictionary<ElementId, double>();
         }
@@ -156,27 +156,33 @@ namespace StructuralTools.Engine
             string message = $"Current Settings:\n\n" +
                              $"Fudge Factor: {(_applyFudge ? $"+{_fudgePctText}%" : "Not applied")}\n\n" +
                              "The fudge factor adds a conservatism allowance for incomplete modeling.\n\n" +
-                             "Enter new fudge factor percentage (e.g., 10 for 10%), or leave empty to disable:";
+                             "Note: The Revit TaskDialog API does not support custom text input.\n" +
+                             "To change the fudge factor, edit DEFAULT_FUDGE_FACTOR_PCT in the source code.";
 
             var dialog = new TaskDialog("Settings");
             dialog.MainInstruction = "Wall Load Generator Settings";
             dialog.MainContent = message;
-            dialog.AddEditOption("fudgeFactor", _applyFudge ? _fudgePctText : "");
-            dialog.CommonButtons = TaskDialogCommonButtons.Ok | TaskDialogCommonButtons.Cancel;
+            
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, 
+                "Enable Fudge Factor (+10%)",
+                _applyFudge ? "Currently enabled" : "");
+            
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
+                "Disable Fudge Factor",
+                !_applyFudge ? "Currently disabled" : "");
+            
+            dialog.CommonButtons = TaskDialogCommonButtons.Close;
 
             var result = dialog.Show();
-            if (result == TaskDialogResult.Ok)
+            switch (result)
             {
-                string? inputValue = dialog.GetEditStringValue("fudgeFactor");
-                if (!string.IsNullOrWhiteSpace(inputValue))
-                {
+                case TaskDialogResult.CommandLink1:
                     _applyFudge = true;
-                    _fudgePctText = inputValue.Trim();
-                }
-                else
-                {
+                    _fudgePctText = DEFAULT_FUDGE_FACTOR_PCT.ToString("G4");
+                    break;
+                case TaskDialogResult.CommandLink2:
                     _applyFudge = false;
-                }
+                    break;
             }
         }
 
@@ -638,7 +644,7 @@ namespace StructuralTools.Engine
             };
 
             GeometryElement? geom = null;
-            try { geom = insert.get_Geometry(opts); } catch { }
+            try { geom = insert.get_Geometry(opts); } catch (Exception ex) { Log($"Failed to get geometry for opening {insert.Id}: {ex.Message}", "DEBUG"); }
 
             if (geom != null)
             {
@@ -677,7 +683,7 @@ namespace StructuralTools.Engine
                         foreach (var pt in corners)
                         {
                             IntersectionResult? pr = null;
-                            try { pr = lc.Project(pt); } catch { }
+                            try { pr = lc.Project(pt); } catch (Exception ex) { Log($"Failed to project point for opening {insert.Id}: {ex.Message}", "DEBUG"); }
                             if (pr == null) continue;
 
                             double t = (pr.Parameter - ps) / paramRange;
@@ -693,7 +699,7 @@ namespace StructuralTools.Engine
             }
 
             BoundingBoxXYZ? ib = null;
-            try { ib = insert.get_BoundingBox(null); } catch { }
+            try { ib = insert.get_BoundingBox(null); } catch (Exception ex) { Log($"Failed to get bounding box for opening {insert.Id}: {ex.Message}", "DEBUG"); }
             if (ib == null)
             {
                 log?.Add($"[INFO] Wall {wid}: Opening {insert.Id} has no geometry or bounding box — skipped.");
@@ -718,7 +724,7 @@ namespace StructuralTools.Engine
             foreach (var pt in pts2)
             {
                 IntersectionResult? pr = null;
-                try { pr = lc.Project(pt); } catch { }
+                try { pr = lc.Project(pt); } catch (Exception ex) { Log($"Failed to project point for opening bbox {insert.Id}: {ex.Message}", "DEBUG"); }
                 if (pr == null) continue;
 
                 double t = (pr.Parameter - ps) / paramRange;
@@ -765,25 +771,41 @@ namespace StructuralTools.Engine
         private static double InternalLenToM(double ft)
         {
             try { return UnitUtils.ConvertFromInternalUnits(ft, UnitTypeId.Meters); }
-            catch { return ft * 0.3048; }
+            catch (Exception ex) 
+            { 
+                Log($"Unit conversion fallback (length): {ex.Message}", "DEBUG");
+                return ft * 0.3048; 
+            }
         }
 
         private static double InternalUnitWeightToKnM3(double v)
         {
             try { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilonewtonsPerCubicMeter); }
-            catch { return v * 0.101971621; }
+            catch (Exception ex) 
+            { 
+                Log($"Unit conversion fallback (unit weight): {ex.Message}", "DEBUG");
+                return v * 0.101971621; 
+            }
         }
 
         private static double InternalDensityToKgM3(double v)
         {
             try { return UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.KilogramsPerCubicMeter); }
-            catch { return v * 16.0184634; }
+            catch (Exception ex) 
+            { 
+                Log($"Unit conversion fallback (density): {ex.Message}", "DEBUG");
+                return v * 16.0184634; 
+            }
         }
 
         private static double KnPerMToInternal(double v)
         {
             try { return UnitUtils.ConvertToInternalUnits(v, UnitTypeId.KilonewtonsPerMeter); }
-            catch { return v / 0.175126835; }
+            catch (Exception ex) 
+            { 
+                Log($"Unit conversion fallback (force/length): {ex.Message}", "DEBUG");
+                return v * 0.0685218; // 1 kN/m = 0.0685218 kip/ft
+            }
         }
 
         private double GetMaterialUnitWeightCached(Material? mat, double defaultGamma)
@@ -828,7 +850,7 @@ namespace StructuralTools.Engine
         {
             var wt = wall.WallType;
             CompoundStructure? cs = null;
-            try { cs = wt.GetCompoundStructure(); } catch { }
+            try { cs = wt.GetCompoundStructure(); } catch (Exception ex) { Log($"Failed to get compound structure for wall {wall.Id}: {ex.Message}", "DEBUG"); }
 
             if (cs != null)
             {
@@ -888,7 +910,11 @@ namespace StructuralTools.Engine
                               .GetAnalyticalToPhysicalAssociationManager(_doc);
                 return mgr.GetAssociatedElementId(physElem.Id);
             }
-            catch { return ElementId.InvalidElementId; }
+            catch (Exception ex) 
+            { 
+                Log($"Failed to get analytical ID for {physElem.Id}: {ex.Message}", "DEBUG");
+                return ElementId.InvalidElementId; 
+            }
         }
 
         private static string? ClassifyHost(Element elem)
@@ -939,7 +965,7 @@ namespace StructuralTools.Engine
                     return lv.Elevation + offsetFt;
                 }
             }
-            catch { }
+            catch (Exception ex) { Log($"Failed to get host elevation for {floor.Id}: {ex.Message}", "DEBUG"); }
 
             var bb = floor.get_BoundingBox(null);
             return bb?.Max.Z ?? double.NaN;
@@ -952,7 +978,7 @@ namespace StructuralTools.Engine
                 var r = curve.Project(pt);
                 if (r != null) return r.XYZPoint;
             }
-            catch { }
+            catch (Exception ex) { Log($"Failed to project point onto curve: {ex.Message}", "DEBUG"); }
 
             if (curve is Line ln)
             {
@@ -1021,7 +1047,11 @@ namespace StructuralTools.Engine
             };
 
             GeometryElement? geom = null;
-            try { geom = ae.get_Geometry(opts); } catch { }
+            try { geom = ae.get_Geometry(opts); } 
+            catch (Exception ex) 
+            { 
+                Log($"Failed to get geometry for analytical element {analId}: {ex.Message}", "DEBUG"); 
+            }
 
             if (geom != null)
             {
@@ -1069,7 +1099,11 @@ namespace StructuralTools.Engine
             }
 
             BoundingBoxXYZ? aebb = null;
-            try { aebb = ae.get_BoundingBox(null); } catch { }
+            try { aebb = ae.get_BoundingBox(null); } 
+            catch (Exception ex) 
+            { 
+                Log($"Failed to get bounding box for analytical element {analId}: {ex.Message}", "DEBUG"); 
+            }
 
             if (aebb != null)
             {
@@ -1171,16 +1205,39 @@ namespace StructuralTools.Engine
 
         private void SetStatusBar(string message)
         {
-            var statusBar = _uiApp.MainWindow?.StatusBar;
-            if (statusBar != null)
-                statusBar.StatusText = message;
+            // Note: StatusBar access requires Revit 2027+ with MainWindow property
+            // This is a no-op in earlier versions or if MainWindow is not available
+            try
+            {
+                var mainWindowProp = _uiApp.GetType().GetProperty("MainWindow");
+                if (mainWindowProp != null)
+                {
+                    var mainWindow = mainWindowProp.GetValue(_uiApp);
+                    if (mainWindow != null)
+                    {
+                        var statusBarProp = mainWindow.GetType().GetProperty("StatusBar");
+                        if (statusBarProp != null)
+                        {
+                            var statusBar = statusBarProp.GetValue(mainWindow);
+                            if (statusBar != null)
+                            {
+                                var statusTextProp = statusBar.GetType().GetProperty("StatusText");
+                                if (statusTextProp != null)
+                                    statusTextProp.SetValue(statusBar, message);
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // StatusBar not available - silently ignore
+            }
         }
 
         private void ClearStatusBar()
         {
-            var statusBar = _uiApp.MainWindow?.StatusBar;
-            if (statusBar != null)
-                statusBar.StatusText = "Ready";
+            SetStatusBar("Ready");
         }
 
         #endregion

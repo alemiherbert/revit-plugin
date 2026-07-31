@@ -2,28 +2,22 @@
 # Build artifacts
 bin/
 obj/
-*.exe
 *.dll
+*.exe
 *.pdb
-*.userprefs
-*.cache
-*.tmp
+*.nupkg
 
 # Dependencies
 packages/
 node_modules/
-.nuget/
-.nyc_output/
-coverage/
 
 # Logs
 *.log
-*.user
 
 # Environment
 .env
 .env.local
-.env.*
+*.env.*
 
 # Editors
 .vscode/
@@ -33,11 +27,10 @@ coverage/
 *.userosscache
 *.sln.docstates
 
-# OS generated files
+# OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# Testing
+# Test results
 TestResults/
 ```

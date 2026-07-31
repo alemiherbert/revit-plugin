@@ -7,6 +7,6 @@
     <FullClassName>StructuralTools.App</FullClassName>
     <Vendor>Structural Tools</Vendor>
     <VendorId>StructuralTools</VendorId>
-    <SupportedBuilds>2027</SupportedBuilds>
+    <SupportedBuilds>27.0.0.0</SupportedBuilds>
   </AddIn>
 </RevitAddIns>
