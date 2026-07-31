@@ -10,7 +10,7 @@ namespace StructuralTools.Models
     public struct WallEntry
     {
         public Wall? Wall;
-        public Transform Transform;
+        public Transform? Transform;
         public string? Source;
     }
 

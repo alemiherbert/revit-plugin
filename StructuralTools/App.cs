@@ -31,7 +31,7 @@ public class App : IExternalApplication
             RibbonPanel wallLoadsPanel = application.CreateRibbonPanel(TabName, "Wall Loads");
             
             // Generate Wall Loads button
-            PushButton generateBtn = wallLoadsPanel.AddItem(
+            PushButton? generateBtn = wallLoadsPanel.AddItem(
                 new PushButtonData(
                     "GenerateWallLoads",
                     "Generate",
@@ -58,7 +58,7 @@ public class App : IExternalApplication
             }
             
             // Settings button
-            PushButton settingsBtn = wallLoadsPanel.AddItem(
+            PushButton? settingsBtn = wallLoadsPanel.AddItem(
                 new PushButtonData(
                     "WallLoadSettings",
                     "Settings",
@@ -84,7 +84,7 @@ public class App : IExternalApplication
             RibbonPanel staircasePanel = application.CreateRibbonPanel(TabName, "Staircase");
             
             // Staircase to Analytical Model button
-            PushButton staircaseBtn = staircasePanel.AddItem(
+            PushButton? staircaseBtn = staircasePanel.AddItem(
                 new PushButtonData(
                     "StaircaseToAnalytical",
                     "To Analytical",

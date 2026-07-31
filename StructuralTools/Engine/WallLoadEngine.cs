@@ -133,7 +133,6 @@ namespace StructuralTools.Engine
             dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink4, "⚙ Settings (fudge factor, defaults)");
             
             dialog.CommonButtons = TaskDialogCommonButtons.Close;
-            dialog.DefaultButtonIndex = (int)(canGenerate ? TaskDialogCommandLinkId.CommandLink3 : TaskDialogCommandLinkId.CommandLink1);
 
             var result = dialog.Show();
             
@@ -168,7 +167,7 @@ namespace StructuralTools.Engine
             var result = dialog.Show();
             if (result == TaskDialogResult.Ok)
             {
-                string inputValue = dialog.GetEditStringValue("fudgeFactor");
+                string? inputValue = dialog.GetEditStringValue("fudgeFactor");
                 if (!string.IsNullOrWhiteSpace(inputValue))
                 {
                     _applyFudge = true;
@@ -388,7 +387,7 @@ namespace StructuralTools.Engine
                 foreach (var entry in wallItems)
                 {
                     Wall wall = entry.Wall;
-                    Transform transform = entry.Transform;
+                    Transform? transform = entry.Transform;
                     string? source = entry.Source;
 
                     if (wall == null) continue;
@@ -482,8 +481,8 @@ namespace StructuralTools.Engine
                         {
                             if (sc.Length < MIN_LOAD_SEGMENT_LENGTH_FT) continue;
 
-                            Curve raw = !transform.IsIdentity
-                                ? sc.CreateTransformed(transform)
+                            Curve raw = (transform.HasValue && !transform.Value.IsIdentity)
+                                ? sc.CreateTransformed(transform.Value)
                                 : sc;
 
                             Curve? lcCurve = BuildHostedCurve(raw, physicalHost, hostType, analId, res.Log, wid);
@@ -932,7 +931,7 @@ namespace StructuralTools.Engine
                     
                     if (p == null)
                     {
-                        var levelParam = floor.get_Parameter(BuiltInParameter.LEVEL_OFFSET_PARAM);
+                        var levelParam = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM);
                         if (levelParam != null && levelParam.HasValue)
                             offsetFt = levelParam.AsDouble();
                     }
@@ -1172,12 +1171,16 @@ namespace StructuralTools.Engine
 
         private void SetStatusBar(string message)
         {
-            _uiApp.StatusBarText = message;
+            var statusBar = _uiApp.MainWindow?.StatusBar;
+            if (statusBar != null)
+                statusBar.StatusText = message;
         }
 
         private void ClearStatusBar()
         {
-            _uiApp.StatusBarText = "Ready";
+            var statusBar = _uiApp.MainWindow?.StatusBar;
+            if (statusBar != null)
+                statusBar.StatusText = "Ready";
         }
 
         #endregion
