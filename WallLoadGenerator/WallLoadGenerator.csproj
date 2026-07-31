@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    
+    <!-- Revit 2027 targets .NET 8 -->
+    <PlatformTarget>x64</PlatformTarget>
+    <Deterministic>false</Deterministic>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    
+    <!-- Assembly info -->
+    <AssemblyName>WallLoadGenerator</AssemblyName>
+    <RootNamespace>WallLoadGenerator</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>Structural Tools</Authors>
+    <Description>Native Revit 2027 add-in for generating wall loads</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Revit API references - adjust paths to your Revit 2027 installation -->
+    <Reference Include="RevitAPI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2027\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2027\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AdWindows">
+      <HintPath>C:\Program Files\Autodesk\Revit 2027\AdWindows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Resources -->
+    <Resource Include="Resources\Generate32.png" />
+    <Resource Include="Resources\Generate16.png" />
+    <Resource Include="Resources\Logo.png" />
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <!-- Copy output to Revit AddIns folder for development -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(APPDATA)\Autodesk\REVIT\Addins\2027\WallLoadGenerator\" Condition="Exists('$(APPDATA)\Autodesk\REVIT\Addins\2027')" />
+    <Copy SourceFiles="$(ProjectDir)WallLoadGenerator.addin" DestinationFolder="$(APPDATA)\Autodesk\REVIT\Addins\2027\" Condition="Exists('$(APPDATA)\Autodesk\REVIT\Addins\2027')" />
+  </Target>
+
+</Project>

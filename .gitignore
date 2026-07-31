@@ -1,0 +1,53 @@
+```
+# Build artifacts
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.nupkg
+*.zip
+
+# Dependencies
+packages/
+node_modules/
+
+# Logs
+*.log
+
+# User-specific files
+*.user
+*.userosscache
+*.suo
+*.userprefs
+
+# Environment specific settings
+.vs/
+!.vs/settings.json
+!.vs/launchSettings.json
+.vscode/
+!/.vscode/settings.json
+!/.vscode/tasks.json
+!/.vscode/launch.json
+!/.vscode/extensions.json
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Configuration files that might store secrets
+.config/
+!/.config/dotnet-tools.json
+
+# Test results
+TestResults/
+
+# IDE specific
+*.VC.db
+*.VC.VC.opendb
+```
