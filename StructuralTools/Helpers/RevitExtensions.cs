@@ -12,7 +12,11 @@ public static class RevitExtensions
     /// </summary>
     public static Line? GetLocationLine(this Wall wall)
     {
-        return wall.Location as LocationCurve curve ? curve.Curve as Line : null;
+        if (wall.Location is LocationCurve locationCurve)
+        {
+            return locationCurve.Curve as Line;
+        }
+        return null;
     }
 
     /// <summary>
