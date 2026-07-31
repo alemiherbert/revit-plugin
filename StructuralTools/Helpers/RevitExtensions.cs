@@ -85,12 +85,12 @@ public static class RevitExtensions
     /// <summary>
     /// Gets all stairs from a document.
     /// </summary>
-    public static IList<Stairs> GetStairs(this Document doc)
+    public static IList<Autodesk.Revit.DB.Stairs> GetStairs(this Document doc)
     {
         return new FilteredElementCollector(doc)
             .OfCategory(BuiltInCategory.OST_Stairs)
-            .OfClass(typeof(Stairs))
-            .Cast<Stairs>()
+            .OfClass(typeof(Autodesk.Revit.DB.Stairs))
+            .Cast<Autodesk.Revit.DB.Stairs>()
             .ToList();
     }
 
