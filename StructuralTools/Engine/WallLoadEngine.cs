@@ -784,9 +784,16 @@ namespace StructuralTools.Engine
                 if (lv != null)
                 {
                     double offsetFt = 0.0;
-                    var p = floor.get_Parameter(BuiltInParameter.LEVEL_OFFSET_PARAM)
-                         ?? floor.LookupParameter("Height Offset From Level");
-                    if (p != null && p.HasValue) offsetFt = p.AsDouble();
+                    // Try multiple parameter names for compatibility across Revit versions
+                    var p = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHT_ABOVE_LEVEL_PARAM);
+                    if (p == null || !p.HasValue)
+                        p = floor.LookupParameter("Height Offset From Level");
+                    if (p == null || !p.HasValue)
+                        p = floor.LookupParameter("Base Offset");
+                    
+                    if (p != null && p.HasValue)
+                        offsetFt = p.AsDouble();
+                    
                     return lv.Elevation + offsetFt;
                 }
             }
