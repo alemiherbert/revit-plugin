@@ -37,7 +37,7 @@ public class App : IExternalApplication
                     "GenerateWallLoads",
                     "Generate",
                     assemblyPath,
-                    "StructuralTools.Commands.GenerateWallLoadsCommand"
+                    "StructuralTools.GenerateWallLoads"
                 )
             ) as PushButton;
             
