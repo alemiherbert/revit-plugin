@@ -12,14 +12,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Complete rewrite of the panel-generation strategy, replacing `StraightEngine`
 as the primary path. The two architecturally significant improvements are:
 
-**1. Sketch-first boundary extraction (`SketchExtractor`)**
+**1. Sketch-first boundary extraction (`SketchExtractor`) — now actually used**
 
-`SketchExtractor.GetRunBoundary()` now tries `run.SketchId → Sketch.Profile`
+`SketchExtractor.GetRunBoundary()` tries `run.SketchId → Sketch.Profile`
 (a direct Revit API call, no reflection) before falling back to the
-`GetFootprintBoundary()` reflection path. This makes boundary access more
-reliable across Revit versions and eliminates a reflection dependency for the
-most common case. Riser curves continue to use `GetRiserCurves()` reflection
-(no public API equivalent exists).
+`GetFootprintBoundary()` reflection path.
+
+`RunPanelBuilder` now calls `GetRunBoundary()` as the **primary geometry
+source** for simple (single-flight) runs, exactly matching the spec:
+`Boundary ← GetRunBoundary(Sketch)`. The boundary corners are sorted by
+projection along the travel direction; leading 2 corners are lifted to
+`node.BaseElevation`, trailing 2 corners to `node.TopElevation`. The
+inclination is always derived from the run's built-in level data, never from
+the boundary edge geometry (per spec note).
+
+Previously `GetRunBoundary()` was declared but never called — `RunPanelBuilder`
+only called `GetSortedRisers()`, making it behaviourally identical to the old
+`StraightEngine` riser path with no observable change. This commit fixes that.
+
+Riser curves continue to use `GetRiserCurves()` reflection and remain the
+primary source for multi-flight (sketched dogleg/U-shape) runs, where they are
+needed to detect the split points between flights and in-run landings.
 
 **2. Mid-surface offset (`MidSurfaceOffset`)**
 

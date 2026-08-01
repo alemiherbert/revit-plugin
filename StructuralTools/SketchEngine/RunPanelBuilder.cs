@@ -5,35 +5,47 @@ using StructuralTools.StaircaseEngine;
 namespace StructuralTools.SketchEngine;
 
 /// <summary>
-/// Builds <see cref="PanelGeometry"/> objects for a <see cref="StairsRun"/>.
+/// Builds <see cref="PanelGeometry"/> objects for a <see cref="StairsRun"/>
+/// following the algorithm from the spec document.
 ///
-/// Algorithm (per flight group)
-/// ----------------------------
-/// 1. Get riser curves via <see cref="SketchExtractor.GetSortedRisers"/>.
-/// 2. Detect flight / landing groups by comparing consecutive riser spacing
-///    to the median tread depth.
-/// 3. For each flight group the first riser → leading edge at the group's
-///    base elevation; the last riser → trailing edge at the group's top
-///    elevation.  Panel corners are ordered CCW.
-/// 4. For each landing group the last riser of the preceding flight and the
-///    first riser of the following flight form the two opposite edges of a
-///    flat quad at the landing elevation.
-/// 5. Every panel is shifted by <c>−slabNormal × (thickness/2)</c> via
-///    <see cref="MidSurfaceOffset.Apply"/> so it lies at the structural
-///    mid-surface of the waist slab.
+/// Algorithm
+/// ---------
+/// <b>Simple run</b> (path is a single line segment — the common case):
+///   1. <c>Boundary ← SketchExtractor.GetRunBoundary()</c>
+///      (tries <c>run.SketchId → Sketch.Profile</c> first, then reflection).
+///   2. Sort boundary corners by projection along travel direction.
+///   3. Two lowest-projection corners → leading edge at <c>node.BaseElevation</c>.
+///      Two highest-projection corners → trailing edge at <c>node.TopElevation</c>.
+///   4. Apply <see cref="MidSurfaceOffset.Apply"/> — shift every corner by
+///      <c>−slabNormal × (thickness/2)</c> along the inclined slab normal.
+///
+/// <b>Sketched multi-flight run</b> (path has multiple segments — dogleg / U-shape
+/// modelled as a single <see cref="StairsRun"/>):
+///   1. Get riser curves and sort along travel direction.
+///   2. Detect flight / landing gaps: consecutive riser spacing &gt; 2.5× median.
+///   3. Build one inclined panel per flight (first riser → leading edge, last →
+///      trailing edge), and one flat quad per in-run landing.
+///   4. Apply <see cref="MidSurfaceOffset.Apply"/> to every panel.
 ///
 /// Fallback
 /// --------
-/// If fewer than 2 riser curves are available the method returns <c>null</c>
-/// and the caller should fall back to <see cref="StraightEngine"/>.
+/// Returns <c>null</c> when neither the boundary nor riser curves are
+/// available.  The caller (<see cref="SketchEngineStrategy"/>) then falls
+/// back transparently to <see cref="StraightEngine"/>.
+///
+/// Note on inclination derivation
+/// --------------------------------
+/// Per spec: "don't derive the run inclination from the boundary edges."
+/// Inclination is always computed from <c>node.BaseElevation</c> /
+/// <c>node.TopElevation</c> (the run's built-in level data), never from the
+/// XY spread of the boundary polygon.
 /// </summary>
 public static class RunPanelBuilder
 {
     private const double LandingSpacingMultiplier = 2.5;
 
     /// <summary>
-    /// Build all panels for the run.  Returns <c>null</c> when riser curves
-    /// are unavailable (caller should fall back to <see cref="StraightEngine"/>).
+    /// Build all panels for the run.  Returns <c>null</c> on total failure.
     /// </summary>
     public static List<PanelGeometry>? Build(
         StairsRun run,
@@ -42,94 +54,190 @@ public static class RunPanelBuilder
         StairParameterContext context,
         List<string> log)
     {
-        // ---- Travel direction from stair path --------------------------------
         XYZ travelDir = GetTravelDir(run, node, log);
 
-        // ---- Riser curves (primary geometry source) -------------------------
+        // Determine whether this is a simple or multi-segment run.
+        var pathCurves = SafeGetPath(run);
+        bool isMultiSegment = pathCurves.Count > 1;
+
+        if (!isMultiSegment)
+            return BuildFromBoundary(run, doc, node, travelDir, context, log);
+        else
+            return BuildFromRisers(run, node, travelDir, context, log);
+    }
+
+    // ==================================================================
+    // SIMPLE RUN — boundary-based (spec primary path)
+    // ==================================================================
+
+    /// <summary>
+    /// Single-flight run: get the plan boundary, lift leading edge to
+    /// <c>baseZ</c>, trailing edge to <c>topZ</c>, then offset to mid-surface.
+    /// </summary>
+    private static List<PanelGeometry>? BuildFromBoundary(
+        StairsRun run,
+        Document doc,
+        StairNode node,
+        XYZ travelDir,
+        StairParameterContext context,
+        List<string> log)
+    {
+        // Step 1 — get plan boundary (Sketch.Profile primary, reflection fallback)
+        var boundary = SketchExtractor.GetRunBoundary(run, doc, log);
+        if (boundary == null)
+        {
+            log.Add($"[WARN] Run {run.Id}: boundary unavailable — trying riser fallback.");
+            return BuildFromRisers(run, node, travelDir, context, log);
+        }
+
+        // Step 2 — extract corners (start points of each boundary curve)
+        var pts = new List<XYZ>();
+        foreach (var c in boundary)
+            pts.Add(c.GetEndPoint(0));
+
+        if (pts.Count < 4)
+        {
+            log.Add($"[WARN] Run {run.Id}: boundary has {pts.Count} point(s) — need ≥4. Trying riser fallback.");
+            return BuildFromRisers(run, node, travelDir, context, log);
+        }
+
+        double baseZ = node.BaseElevation;
+        double topZ  = node.TopElevation;
+
+        // Step 3 — sort by travel projection; split into leading (2 lowest)
+        // and trailing (2 highest) edge pairs.
+        var sorted = pts.OrderBy(p => p.DotProduct(travelDir)).ToList();
+
+        var leadPts  = sorted.Take(2).ToList();
+        var trailPts = sorted.TakeLast(2).ToList();
+
+        // Order each edge pair left-to-right (by perpendicular projection).
+        XYZ perpDir = PerpDir(travelDir);
+        leadPts  = leadPts.OrderBy(p => p.DotProduct(perpDir)).ToList();
+        trailPts = trailPts.OrderBy(p => p.DotProduct(perpDir)).ToList();
+
+        // Lift to 3-D: leading edge at baseZ, trailing edge at topZ.
+        XYZ bl = new XYZ(leadPts[0].X,  leadPts[0].Y,  baseZ);
+        XYZ br = new XYZ(leadPts[1].X,  leadPts[1].Y,  baseZ);
+        XYZ tl = new XYZ(trailPts[0].X, trailPts[0].Y, topZ);
+        XYZ tr = new XYZ(trailPts[1].X, trailPts[1].Y, topZ);
+
+        // Step 4 — validate minimum edge lengths.
+        if (!ValidQuad(bl, br, tl, tr, run.Id, log))
+            return BuildFromRisers(run, node, travelDir, context, log);
+
+        // CCW order: bl → br → tr → tl (viewed from outside / above).
+        var rawCorners = new List<XYZ> { bl, br, tr, tl };
+
+        // Step 5 — offset to waist mid-surface along inclined slab normal.
+        var corners = MidSurfaceOffset.Apply(rawCorners, context.ThicknessFt);
+
+        double width = bl.DistanceTo(br);
+        double rise  = topZ - baseZ;
+        log.Add($"[INFO] Run {run.Id}: boundary panel — " +
+                $"width={width * 304.8:F0}mm rise={rise * 304.8:F0}mm " +
+                $"midOffset={(context.ThicknessFt / 2 * 304.8):F0}mm.");
+
+        return new List<PanelGeometry>
+        {
+            new PanelGeometry
+            {
+                Corners         = corners,
+                Thickness       = context.ThicknessFt,
+                MaterialId      = context.MaterialId,
+                Role            = PanelRole.Flight,
+                SourceElementId = run.Id,
+                Label           = $"Run {run.Id} (boundary)"
+            }
+        };
+    }
+
+    // ==================================================================
+    // MULTI-FLIGHT RUN — riser-based flight/landing detection
+    // ==================================================================
+
+    /// <summary>
+    /// Multi-segment (sketched dogleg/U-shape) run: sort all riser curves,
+    /// partition into flight groups and in-run landing gaps, produce one
+    /// panel per group, then offset all panels to mid-surface.
+    /// </summary>
+    private static List<PanelGeometry>? BuildFromRisers(
+        StairsRun run,
+        StairNode node,
+        XYZ travelDir,
+        StairParameterContext context,
+        List<string> log)
+    {
         var risers = SketchExtractor.GetSortedRisers(run, travelDir, log);
         if (risers == null || risers.Count < 2)
         {
-            log.Add($"[INFO] Run {run.Id}: <2 risers — SketchEngine falling back to StraightEngine.");
+            log.Add($"[WARN] Run {run.Id}: <2 riser curves — cannot build panels.");
             return null;
         }
 
-        // ---- Group risers into flights and landings --------------------------
-        // Median spacing = expected tread depth.
+        // Median consecutive-riser spacing = expected tread depth.
         var spacings = Enumerable.Range(0, risers.Count - 1)
-            .Select(i => RiserMidpoint(risers[i]).DotProduct(travelDir) -
-                         RiserMidpoint(risers[i + 1]).DotProduct(travelDir))
-            .Select(Math.Abs)
+            .Select(i => Math.Abs(
+                RiserMid(risers[i + 1]).DotProduct(travelDir) -
+                RiserMid(risers[i]).DotProduct(travelDir)))
             .OrderBy(x => x)
             .ToList();
 
-        double medianSpacing = spacings.Count > 0
-            ? spacings[spacings.Count / 2]
-            : 0;
-        double landingThreshold = medianSpacing > 0
-            ? medianSpacing * LandingSpacingMultiplier
+        double median           = spacings[spacings.Count / 2];
+        double landingThreshold = median > 0
+            ? median * LandingSpacingMultiplier
             : double.MaxValue;
 
-        double baseZ     = node.BaseElevation;
-        double topZ      = node.TopElevation;
-        double totalRise = topZ - baseZ;
+        double baseZ      = node.BaseElevation;
+        double topZ       = node.TopElevation;
+        double totalRise  = topZ - baseZ;
+        double currentZ   = baseZ;
+        var    panels     = new List<PanelGeometry>();
+        int    flightStart = 0;
 
-        // Count flight risers (those followed by another riser within tread spacing).
-        int flightRiserCount = risers.Count; // will refine below
-        double currentZ = baseZ;
-        var panels = new List<PanelGeometry>();
-
-        // Walk through consecutive pairs and emit panels.
-        int flightStart = 0;  // index of the first riser in the current flight
         for (int i = 0; i < risers.Count; i++)
         {
-            bool isLastRiser    = i == risers.Count - 1;
-            bool nextIsLanding  = !isLastRiser &&
-                Math.Abs(RiserMidpoint(risers[i]).DotProduct(travelDir) -
-                         RiserMidpoint(risers[i + 1]).DotProduct(travelDir)) > landingThreshold;
+            bool isLast        = i == risers.Count - 1;
+            bool nextIsLanding = !isLast && (
+                Math.Abs(RiserMid(risers[i + 1]).DotProduct(travelDir) -
+                         RiserMid(risers[i]).DotProduct(travelDir))
+                > landingThreshold);
 
-            bool endOfFlight = isLastRiser || nextIsLanding;
-            if (!endOfFlight) continue;
+            if (!isLast && !nextIsLanding) continue;
 
             // Build inclined panel for risers[flightStart..i].
-            int flightRisers = i - flightStart + 1;
-            double flightProportion = (double)flightRisers / risers.Count;
+            double flightProportion = (double)(i - flightStart + 1) / risers.Count;
             double flightRise       = totalRise * flightProportion;
             double flightBaseZ      = currentZ;
             double flightTopZ       = currentZ + flightRise;
 
-            var panel = BuildFlightPanel(
+            var fp = BuildFlightPanel(
                 risers[flightStart], risers[i],
                 travelDir, flightBaseZ, flightTopZ,
                 run, context, $"flight-{flightStart}-{i}", log);
-
-            if (panel != null) panels.Add(panel);
+            if (fp != null) panels.Add(fp);
             currentZ = flightTopZ;
 
-            // If this gap is a landing, build a landing quad.
+            // Build flat landing quad between this flight and the next.
             if (nextIsLanding && i + 1 < risers.Count)
             {
-                var landingPanel = BuildLandingQuad(
+                var lp = BuildLandingQuad(
                     risers[i], risers[i + 1],
                     currentZ, run, context,
-                    $"landing-between-{i}-{i + 1}", log);
-                if (landingPanel != null) panels.Add(landingPanel);
+                    $"landing-after-{i}", log);
+                if (lp != null) panels.Add(lp);
             }
 
             flightStart = i + 1;
         }
 
-        if (panels.Count == 0)
-        {
-            log.Add($"[WARN] Run {run.Id}: SketchEngine produced 0 panels.");
-            return null;
-        }
-
-        log.Add($"[INFO] Run {run.Id}: SketchEngine produced {panels.Count} panel(s).");
+        if (panels.Count == 0) return null;
+        log.Add($"[INFO] Run {run.Id}: riser panels — {panels.Count} panel(s).");
         return panels;
     }
 
     // ------------------------------------------------------------------
-    // Flight panel
+    // Flight panel (riser-based)
     // ------------------------------------------------------------------
 
     private static PanelGeometry? BuildFlightPanel(
@@ -138,32 +246,15 @@ public static class RunPanelBuilder
         StairsRun run, StairParameterContext context,
         string label, List<string> log)
     {
-        XYZ perpDir = new XYZ(-travelDir.Y, travelDir.X, 0).Normalize();
+        XYZ perpDir = PerpDir(travelDir);
 
-        var (bl, br) = OrderedEndpointsAtZ(firstRiser, perpDir, baseZ);
-        var (tl, tr) = OrderedEndpointsAtZ(lastRiser,  perpDir, topZ);
+        var (bl, br) = RiserEndpointsAtZ(firstRiser, perpDir, baseZ);
+        var (tl, tr) = RiserEndpointsAtZ(lastRiser,  perpDir, topZ);
 
-        double width = bl.DistanceTo(br);
-        double rise  = topZ - baseZ;
+        if (!ValidQuad(bl, br, tl, tr, run.Id, log)) return null;
 
-        if (width < EngineConfig.MinEdgeFt || rise < 0 ||
-            tl.DistanceTo(tr) < EngineConfig.MinEdgeFt ||
-            br.DistanceTo(tr) < EngineConfig.MinEdgeFt)
-        {
-            log.Add($"[WARN] Run {run.Id} {label}: degenerate flight geometry skipped " +
-                    $"(width={width * 304.8:F0}mm, rise={rise * 304.8:F0}mm).");
-            return null;
-        }
-
-        // CCW order: bottom-left → bottom-right → top-right → top-left
-        var rawCorners = new List<XYZ> { bl, br, tr, tl };
-
-        // Shift to mid-surface.
-        var corners = MidSurfaceOffset.Apply(rawCorners, context.ThicknessFt);
-
-        log.Add($"[DEBUG] Run {run.Id} {label}: flight panel — " +
-                $"width={width * 304.8:F0}mm rise={rise * 304.8:F0}mm " +
-                $"midOffset={(context.ThicknessFt / 2 * 304.8):F0}mm.");
+        var corners = MidSurfaceOffset.Apply(
+            new List<XYZ> { bl, br, tr, tl }, context.ThicknessFt);
 
         return new PanelGeometry
         {
@@ -177,32 +268,25 @@ public static class RunPanelBuilder
     }
 
     // ------------------------------------------------------------------
-    // Landing quad (between two consecutive flights in a sketched run)
+    // Landing quad (riser-based, between two flights)
     // ------------------------------------------------------------------
 
     private static PanelGeometry? BuildLandingQuad(
         Curve prevLastRiser, Curve nextFirstRiser,
-        double z,
-        StairsRun run, StairParameterContext context,
+        double z, StairsRun run, StairParameterContext context,
         string label, List<string> log)
     {
-        // Four corners: two endpoints of each riser projected to z.
         var c4 = new List<XYZ>
         {
-            new XYZ(prevLastRiser.GetEndPoint(0).X, prevLastRiser.GetEndPoint(0).Y, z),
-            new XYZ(prevLastRiser.GetEndPoint(1).X, prevLastRiser.GetEndPoint(1).Y, z),
+            new XYZ(prevLastRiser.GetEndPoint(0).X,  prevLastRiser.GetEndPoint(0).Y,  z),
+            new XYZ(prevLastRiser.GetEndPoint(1).X,  prevLastRiser.GetEndPoint(1).Y,  z),
             new XYZ(nextFirstRiser.GetEndPoint(1).X, nextFirstRiser.GetEndPoint(1).Y, z),
             new XYZ(nextFirstRiser.GetEndPoint(0).X, nextFirstRiser.GetEndPoint(0).Y, z),
         };
 
-        var ordered = OrderCornersCCW(c4);
-        if (ordered.Count < 3)
-        {
-            log.Add($"[WARN] Run {run.Id} {label}: degenerate landing quad skipped.");
-            return null;
-        }
+        var ordered = OrderCCW(c4);
+        if (ordered.Count < 3) return null;
 
-        // Flat panel → purely vertical offset.
         var corners = MidSurfaceOffset.ApplyHorizontal(ordered, context.ThicknessFt);
 
         log.Add($"[DEBUG] Run {run.Id} {label}: landing quad at z={z * 304.8:F0}mm.");
@@ -218,51 +302,42 @@ public static class RunPanelBuilder
         };
     }
 
-    // ------------------------------------------------------------------
+    // ==================================================================
     // Geometry utilities
-    // ------------------------------------------------------------------
+    // ==================================================================
 
     private static XYZ GetTravelDir(StairsRun run, StairNode node, List<string> log)
     {
-        try
+        foreach (var seg in SafeGetPath(run))
         {
-            var path = run.GetStairsPath();
-            if (path != null)
-            {
-                var curves = path.ToList();
-                if (curves.Count > 0)
-                {
-                    var first = curves[0].GetEndPoint(0);
-                    var last  = curves[^1].GetEndPoint(1);
-                    var dir   = last.Subtract(first);
-                    if (dir.GetLength() > 0.001)
-                        return new XYZ(dir.X, dir.Y, 0).Normalize(); // horizontal component
-                }
-            }
+            var v = seg.GetEndPoint(1).Subtract(seg.GetEndPoint(0));
+            if (v.GetLength() > 0.001)
+                return new XYZ(v.X, v.Y, 0).Normalize();
         }
-        catch { /* ignore */ }
 
-        // Fallback: base→top of the node's bounding box (crude).
         log.Add($"[DEBUG] Run {run.Id}: travel direction from bounding box (path unavailable).");
         var bb = run.get_BoundingBox(null);
         if (bb != null)
         {
-            var diag = bb.Max.Subtract(bb.Min);
-            if (diag.GetLength() > 0.001)
-                return new XYZ(diag.X, diag.Y, 0).Normalize();
+            var d = bb.Max.Subtract(bb.Min);
+            if (d.GetLength() > 0.001) return new XYZ(d.X, d.Y, 0).Normalize();
         }
-        return new XYZ(1, 0, 0); // last resort
+        return new XYZ(1, 0, 0);
     }
 
-    private static XYZ RiserMidpoint(Curve r)
+    private static List<Curve> SafeGetPath(StairsRun run)
+    {
+        try { return run.GetStairsPath()?.ToList() ?? new List<Curve>(); }
+        catch { return new List<Curve>(); }
+    }
+
+    private static XYZ PerpDir(XYZ dir)
+        => new XYZ(-dir.Y, dir.X, 0).Normalize();
+
+    private static XYZ RiserMid(Curve r)
         => (r.GetEndPoint(0) + r.GetEndPoint(1)) / 2.0;
 
-    /// <summary>
-    /// Return the two riser endpoints ordered by projection onto
-    /// <paramref name="perpDir"/> (left = lower, right = higher),
-    /// both lifted to <paramref name="z"/>.
-    /// </summary>
-    private static (XYZ left, XYZ right) OrderedEndpointsAtZ(
+    private static (XYZ left, XYZ right) RiserEndpointsAtZ(
         Curve riser, XYZ perpDir, double z)
     {
         var a = riser.GetEndPoint(0);
@@ -271,17 +346,23 @@ public static class RunPanelBuilder
         return (new XYZ(a.X, a.Y, z), new XYZ(b.X, b.Y, z));
     }
 
-    /// <summary>
-    /// Re-order 4 coplanar points into a convex CCW polygon (viewed from +Z).
-    /// Uses the centroid-angle method, which works for any convex quad.
-    /// </summary>
-    private static List<XYZ> OrderCornersCCW(List<XYZ> pts)
+    private static bool ValidQuad(
+        XYZ bl, XYZ br, XYZ tl, XYZ tr, ElementId id, List<string> log)
     {
-        if (pts.Count != 4) return pts;
+        double min = EngineConfig.MinEdgeFt;
+        if (bl.DistanceTo(br) < min || tl.DistanceTo(tr) < min ||
+            br.DistanceTo(tr) < min || bl.DistanceTo(tl) < min)
+        {
+            log.Add($"[WARN] Run {id}: degenerate quad skipped.");
+            return false;
+        }
+        return true;
+    }
+
+    private static List<XYZ> OrderCCW(List<XYZ> pts)
+    {
         double cx = pts.Average(p => p.X);
         double cy = pts.Average(p => p.Y);
-        return pts
-            .OrderBy(p => Math.Atan2(p.Y - cy, p.X - cx))
-            .ToList();
+        return pts.OrderBy(p => Math.Atan2(p.Y - cy, p.X - cx)).ToList();
     }
 }
