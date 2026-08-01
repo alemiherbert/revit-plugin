@@ -17,8 +17,8 @@
     <Assembly>StructuralTools\StructuralTools.dll</Assembly>
     <AddInId>3F2A8B5C-7D9E-4A1F-B6C3-8E4D2F1A9C7B</AddInId>
     <FullClassName>StructuralTools.App</FullClassName>
-    <Vendor>Structural Tools</Vendor>
-    <VendorId>StructuralTools</VendorId>
+    <Vendor>Alemi Herbert</Vendor>
+    <VendorId>AlemiHerbert</VendorId>
     <SupportedBuilds>27.0.0.0</SupportedBuilds>
   </AddIn>
 </RevitAddIns>

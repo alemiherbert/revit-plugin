@@ -25,7 +25,9 @@
     <AssemblyName>StructuralTools</AssemblyName>
     <RootNamespace>StructuralTools</RootNamespace>
     <Version>1.0.1</Version>
-    <Authors>Structural Tools</Authors>
+    <Authors>Alemi Herbert</Authors>
+    <Company>Alemi Herbert</Company>
+    <Copyright>Copyright © Alemi Herbert 2025</Copyright>
     <Description>Native Revit 2027 add-in for structural analysis tools</Description>
   </PropertyGroup>
 
@@ -49,8 +51,6 @@
     <!-- Embedded WPF resources, loaded via Pack URI at runtime. -->
     <Resource Include="Resources\Generate32.png" />
     <Resource Include="Resources\Generate16.png" />
-    <Resource Include="Resources\Staircase32.png" />
-    <Resource Include="Resources\Staircase16.png" />
     <Resource Include="Resources\Logo.png" />
     <Resource Include="Resources\Settings16.png" />
     <Resource Include="Resources\Settings32.png" />

@@ -111,69 +111,107 @@ public class WallLoadEngine
 
     /// <summary>
     /// Pick walls from the host model or linked models. Returns an empty list
-    /// if the user cancels (presses the red X).
+    /// if the user cancels Pass 1 (the red X on the first prompt).
+    ///
+    /// Two sequential passes are used because <see cref="ObjectType.LinkedElement"/>
+    /// — which is required to select elements inside linked Revit models — does NOT
+    /// expose host-document elements as selectable targets in all Revit versions.
+    /// Using <see cref="ObjectType.Element"/> for host walls is the reliable path.
+    ///
+    /// Pass 1 (host walls): <see cref="ObjectType.Element"/> + <see cref="HostWallFilter"/>.
+    ///   Cancel (✗) aborts the entire command.
+    /// Pass 2 (linked walls): <see cref="ObjectType.LinkedElement"/> + <see cref="WallOrLinkFilter"/>.
+    ///   Cancel (✗) is treated as "no linked walls" — not an error.
     /// </summary>
     private List<WallEntry> PickWalls()
     {
-        IList<Reference> refs;
+        var allWalls   = new List<WallEntry>();
+        var seenKeys   = new HashSet<string>();
+        int skipped    = 0;
+        int duplicates = 0;
+
+        // ---- Pass 1: host model walls (ObjectType.Element) ------------------
+        IList<Reference> hostRefs;
         try
         {
-            refs = _uiDoc.Selection.PickObjects(
-                ObjectType.LinkedElement,
-                new WallOrLinkFilter(),
-                "Select walls — click or box-select (host or linked). Press Finish (✓) when done.");
+            hostRefs = _uiDoc.Selection.PickObjects(
+                ObjectType.Element,
+                new HostWallFilter(),
+                "Pass 1 of 2 — Select walls in THIS model. Finish (✓) when done.");
         }
         catch (RevitOperationCanceledException)
         {
-            return new List<WallEntry>();
+            return new List<WallEntry>(); // user cancelled — abort command
         }
 
-        var newWalls = new List<WallEntry>();
-        var seenKeys = new HashSet<string>();
-        int skipped = 0, duplicates = 0;
+        foreach (var r in hostRefs)
+        {
+            string key = $"host:{r.ElementId.Value}";
+            if (seenKeys.Contains(key)) { duplicates++; continue; }
+            if (_doc.GetElement(r.ElementId) is not Wall w) { skipped++; continue; }
+            seenKeys.Add(key);
+            allWalls.Add(new WallEntry(w, Transform.Identity, null));
+        }
 
-        foreach (var r in refs)
+        // ---- Pass 2: linked model walls (ObjectType.LinkedElement) -----------
+        // Optional — Cancel (✗) means "no linked walls"; it is not an error.
+        IList<Reference> linkedRefs;
+        try
+        {
+            linkedRefs = _uiDoc.Selection.PickObjects(
+                ObjectType.LinkedElement,
+                new WallOrLinkFilter(),
+                "Pass 2 of 2 — Select walls in LINKED models, or Cancel (✗) to skip.");
+        }
+        catch (RevitOperationCanceledException)
+        {
+            linkedRefs = Array.Empty<Reference>();
+        }
+
+        foreach (var r in linkedRefs)
         {
             bool isLinked = r.LinkedElementId != ElementId.InvalidElementId;
-            string dedupeKey = isLinked
+            string key = isLinked
                 ? $"link:{r.ElementId.Value}:{r.LinkedElementId.Value}"
                 : $"host:{r.ElementId.Value}";
 
-            if (seenKeys.Contains(dedupeKey)) { duplicates++; continue; }
+            if (seenKeys.Contains(key)) { duplicates++; continue; }
 
-            WallEntry entry;
             if (isLinked)
             {
-                if (_doc.GetElement(r.ElementId) is not RevitLinkInstance linkInst) { skipped++; continue; }
-                var linkDoc = linkInst.GetLinkDocument();
-                if (linkDoc == null) { skipped++; continue; }
-                if (linkDoc.GetElement(r.LinkedElementId) is not Wall w) { skipped++; continue; }
-                entry = new WallEntry(w, linkInst.GetTotalTransform(), linkDoc.Title);
+                if (_doc.GetElement(r.ElementId) is not RevitLinkInstance li) { skipped++; continue; }
+                var ld = li.GetLinkDocument();
+                if (ld == null) { skipped++; continue; }
+                if (ld.GetElement(r.LinkedElementId) is not Wall w) { skipped++; continue; }
+                seenKeys.Add(key);
+                allWalls.Add(new WallEntry(w, li.GetTotalTransform(), ld.Title));
             }
             else
             {
+                // Some Revit versions do return host-document elements via
+                // ObjectType.LinkedElement (LinkedElementId == InvalidElementId).
+                // Accept them here to avoid losing them; deduplication via
+                // seenKeys prevents double-counting with Pass 1.
                 if (_doc.GetElement(r.ElementId) is not Wall w) { skipped++; continue; }
-                entry = new WallEntry(w, Transform.Identity, null);
+                seenKeys.Add(key);
+                allWalls.Add(new WallEntry(w, Transform.Identity, null));
             }
-
-            seenKeys.Add(dedupeKey);
-            newWalls.Add(entry);
         }
 
-        if (newWalls.Count == 0)
+        if (allWalls.Count == 0)
         {
             TaskDialog.Show("Wall Load Generator",
-                $"No Wall elements were picked.\n" +
-                (skipped    > 0 ? $"({skipped} non-wall pick(s) ignored)\n" : "") +
+                "No Wall elements were picked.\n" +
+                (skipped    > 0 ? $"({skipped} non-wall pick(s) ignored)\n"  : "") +
                 (duplicates > 0 ? $"({duplicates} duplicate pick(s) ignored)" : ""));
         }
 
-        return newWalls;
+        return allWalls;
     }
 
     /// <summary>
     /// Pick the host beam or floor (current model only). Returns null on cancel.
-    /// Uses an <see cref="ISelectionFilter"/> so only Floors and Structural Framing
+    /// Uses <see cref="HostElementFilter"/> so only Floors and Structural Framing
     /// members are clickable — everything else is greyed out.
     /// </summary>
     private Element? PickHost()
@@ -547,10 +585,21 @@ public class WallLoadEngine
     // ---------------------------------------------------------------------
 
     /// <summary>
-    /// Filter that allows selecting only Wall elements (host model) or
-    /// RevitLinkInstance elements (so walls inside links can also be picked).
-    /// When this filter is active, every other element type is greyed out
-    /// and unclickable in the viewport.
+    /// Filter for Pass 1 (host model walls). Only Wall elements in the current
+    /// document are selectable — everything else is greyed out.
+    /// Used with <see cref="ObjectType.Element"/>.
+    /// </summary>
+    private class HostWallFilter : ISelectionFilter
+    {
+        public bool AllowElement(Element elem) => elem is Wall;
+        public bool AllowReference(Reference reference, XYZ position) => false;
+    }
+
+    /// <summary>
+    /// Filter for Pass 2 (linked model walls). Allows selecting a
+    /// <see cref="RevitLinkInstance"/> (so the user can "enter" the link)
+    /// and Wall elements found inside linked models.
+    /// Used with <see cref="ObjectType.LinkedElement"/>.
     /// </summary>
     private class WallOrLinkFilter : ISelectionFilter
     {
@@ -562,16 +611,15 @@ public class WallLoadEngine
 
     /// <summary>
     /// Filter that allows selecting only Floors and Structural Framing members
-    /// (beams) in the current document. Linked elements are not allowed because
-    /// analytical loads must be hosted on elements in the current model.
+    /// (beams) in the current document. Linked elements are not allowed — analytical
+    /// loads must be hosted on elements in the current (host) model.
     /// </summary>
     private class HostElementFilter : ISelectionFilter
     {
         public bool AllowElement(Element elem)
         {
             if (elem is Floor) return true;
-            if (elem.Category != null &&
-                elem.Category.Id == new ElementId(BuiltInCategory.OST_StructuralFraming))
+            if (elem.Category?.Id == new ElementId(BuiltInCategory.OST_StructuralFraming))
                 return true;
             return false;
         }

@@ -38,36 +38,13 @@ public class App : IExternalApplication
             {
                 generateBtn.ToolTip = "Pick walls and generate line loads on a host beam or floor";
                 generateBtn.LongDescription =
-                    "Click to enter Revit's native wall-selection mode (only Wall elements are clickable). " +
-                    "Press Finish (✓) when done, then pick the host beam or floor. " +
+                    "Pass 1 — pick walls from THIS model (only Wall elements are clickable). " +
+                    "Press Finish (✓) when done, or Cancel (✗) to abort.\n" +
+                    "Pass 2 — pick walls from LINKED models. Cancel (✗) to skip (no linked walls needed).\n" +
+                    "Then pick the host beam or floor (only Floors and Structural Framing members are clickable). " +
                     "Line loads are created in the current load case.";
                 generateBtn.LargeImage = LoadPackImage(assemblyName, "Generate32.png");
                 generateBtn.Image      = LoadPackImage(assemblyName, "Generate16.png");
-            }
-
-            panel.AddSeparator();
-
-            // --- Staircase to Analytical (stub) ---
-            var staircaseBtn = panel.AddItem(
-                new PushButtonData(
-                    "StaircaseToAnalytical",
-                    "Staircase\nTo Analytical",
-                    assemblyPath,
-                    "StructuralTools.Commands.StaircaseToAnalyticalCommand"
-                )
-            ) as PushButton;
-
-            if (staircaseBtn != null)
-            {
-                staircaseBtn.ToolTip = "Convert staircases to analytical panels";
-                staircaseBtn.LongDescription =
-                    "Pick stairs (any type — straight, L-shaped, U-shaped/dogleg, Z-shaped, spiral, winder, " +
-                    "split, three-quarter turn). Each run becomes one slanted analytical panel; each landing " +
-                    "becomes one flat analytical panel. Concrete-stair idealisation — no analytical members. " +
-                    "The original stair geometry is preserved.";
-
-                staircaseBtn.LargeImage = LoadPackImage(assemblyName, "Staircase32.png");
-                staircaseBtn.Image      = LoadPackImage(assemblyName, "Staircase16.png");
             }
 
             return Result.Succeeded;
