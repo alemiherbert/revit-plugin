@@ -5,7 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-08-01
+## [Unreleased] - 2026-08-01 (branch: sketch-engine-rewrite)
+
+### Added — SketchEngine pipeline (`StructuralTools/SketchEngine/`)
+
+Complete rewrite of the panel-generation strategy, replacing `StraightEngine`
+as the primary path. The two architecturally significant improvements are:
+
+**1. Sketch-first boundary extraction (`SketchExtractor`)**
+
+`SketchExtractor.GetRunBoundary()` now tries `run.SketchId → Sketch.Profile`
+(a direct Revit API call, no reflection) before falling back to the
+`GetFootprintBoundary()` reflection path. This makes boundary access more
+reliable across Revit versions and eliminates a reflection dependency for the
+most common case. Riser curves continue to use `GetRiserCurves()` reflection
+(no public API equivalent exists).
+
+**2. Mid-surface offset (`MidSurfaceOffset`)**
+
+Every panel is now placed at the structural mid-surface of the waist slab —
+the analytically correct position for `AnalyticalPanel` elements — rather
+than at the nosing/top-surface reference.
+
+- Run panels: shifted by `−slabNormal × (thickness/2)` where `slabNormal`
+  is computed from the CCW corner winding (perpendicular to the inclined slab
+  face, not vertical). The inclination is derived from the stair's
+  `BaseElevation` / `TopElevation` level data, never from boundary edges.
+- Landing panels: shifted by `−(0,0,1) × (thickness/2)` (purely vertical).
+
+**Pipeline per node (`SketchEngineStrategy → IEngineStrategy`)**
+
+```
+StairsRun    → RunPanelBuilder
+  1. Sort riser curves along travel direction.
+  2. Detect flight / landing groups via median tread spacing
+     (consecutive-riser spacing > 2.5× median → landing gap).
+  3. Build inclined quad per flight (first riser = leading edge at
+     flightBaseZ; last riser = trailing edge at flightTopZ).
+  4. Build flat quad for each in-run landing (last riser of preceding
+     flight + first riser of following flight).
+  5. Apply MidSurfaceOffset to all corners.
+
+StairsLanding → LandingPanelBuilder
+  1. Get boundary via SketchExtractor.
+  2. Project all corners to landing elevation.
+  3. Fan-triangulate if > 4 corners (L/T-shaped landings).
+  4. Apply MidSurfaceOffset (vertical).
+
+Fallback → StraightEngine (transparent, when < 2 riser curves are available)
+```
+
+`EngineRouter` now always returns `SketchEngineStrategy`.
+The orchestrator (`Engine/StaircaseEngine.cs`) drains diagnostics from
+`SketchEngineStrategy.Diagnostics` (falling through to `StraightEngine.Diagnostics`
+when the fallback fires).
+
+---
 
 ### Changed — Sketch-first geometry; curved/spiral stairs removed
 
