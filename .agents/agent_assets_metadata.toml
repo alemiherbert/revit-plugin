@@ -1,0 +1,9 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "tXGEQTZRYiyp4dwDsLflV"
+uri = "file://attached_assets/revit-plugin-fixed_22.zip"
+type = "unspecified"
+title = "revit-plugin-fixed_22.zip"
+description = "Staircase analytical model generator — 4 bugs fixed"
