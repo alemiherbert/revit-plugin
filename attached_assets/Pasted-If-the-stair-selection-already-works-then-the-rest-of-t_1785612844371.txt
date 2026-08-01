@@ -1,0 +1,299 @@
+If the stair selection already works, then the rest of the workflow should be deterministic. Since you're creating an **analytical model using analytical panels only**, I'd structure the algorithm around Revit's stair object hierarchy rather than trying to infer geometry from scratch.
+
+## Overall Algorithm
+
+```text
+User selects Stair
+        │
+        ▼
+Validate Stair
+        │
+        ▼
+Extract Stair Properties
+        │
+        ▼
+Extract Runs
+        │
+        ▼
+Extract Landings
+        │
+        ▼
+For each Run
+        │
+        ├── Determine Geometry
+        ├── Determine Levels
+        ├── Determine Gradient
+        ├── Compute Mid-Waist Plane
+        └── Create Analytical Panel
+        │
+        ▼
+For each Landing
+        │
+        ├── Determine Boundary
+        ├── Determine Elevation
+        ├── Compute Mid-Thickness Plane
+        └── Create Analytical Panel
+        │
+        ▼
+Join Panels
+        │
+        ▼
+Validate Connectivity
+        │
+        ▼
+Finish
+```
+
+---
+
+# Detailed Pseudocode
+
+```text
+FUNCTION GenerateAnalyticalStair(Stair stair)
+
+    IF stair IS NULL
+        RETURN
+
+    Document ← stair.Document
+
+    BaseLevel ← stair.BaseLevel
+    TopLevel ← stair.TopLevel
+
+    TotalHeight ← stair.Height
+
+    RunIds ← stair.GetStairsRuns()
+
+    LandingIds ← stair.GetStairsLandings()
+
+    PanelList ← Empty List
+
+    //-----------------------------------
+    // Process Runs
+    //-----------------------------------
+
+    FOR EACH runId IN RunIds
+
+        Run ← Document.GetElement(runId)
+
+        Sketch ← GetRunSketch(Run)
+
+        Boundary ← GetRunBoundary(Sketch)
+
+        WalkLine ← GetRunPath(Sketch)
+
+        Width ← CalculateRunWidth(Boundary)
+
+        Rise ← GetRunRise(Run)
+
+        HorizontalLength ← GetRunLength(WalkLine)
+
+        Gradient ← Rise / HorizontalLength
+
+        StartElevation ← GetRunStartElevation(Run)
+
+        EndElevation ← GetRunEndElevation(Run)
+
+        WaistThickness ← GetRunThickness(Run)
+
+        MidSurface ← OffsetRunPlane(
+                        WalkLine,
+                        Boundary,
+                        WaistThickness / 2)
+
+        Panel ← CreateAnalyticalPanel(
+                    Boundary,
+                    MidSurface,
+                    Gradient,
+                    StartElevation,
+                    EndElevation)
+
+        PanelList.Add(Panel)
+
+    END FOR
+
+
+    //-----------------------------------
+    // Process Landings
+    //-----------------------------------
+
+    FOR EACH landingId IN LandingIds
+
+        Landing ← Document.GetElement(landingId)
+
+        Boundary ← GetLandingBoundary(Landing)
+
+        Elevation ← GetLandingElevation(Landing)
+
+        Thickness ← GetLandingThickness(Landing)
+
+        MidPlane ← HorizontalPlane(
+                        Elevation + Thickness / 2)
+
+        Panel ← CreateAnalyticalPanel(
+                    Boundary,
+                    MidPlane,
+                    0,
+                    Elevation,
+                    Elevation)
+
+        PanelList.Add(Panel)
+
+    END FOR
+
+
+    //-----------------------------------
+    // Join Panels
+    //-----------------------------------
+
+    FOR EACH Adjacent Pair OF Panels
+
+        ConnectPanelEdges()
+
+    END FOR
+
+
+    ValidateModel()
+
+END FUNCTION
+```
+
+---
+
+# Geometry Computation
+
+For each **Run**, the analytical panel is **not** placed on the stair surface.
+
+Instead:
+
+```text
+Top Finish
+──────────────
+
+Concrete
+
+──────────────
+      ▲
+      │  Half Waist Thickness
+      │
+
+═══════════════════════
+ Analytical Panel
+═══════════════════════
+
+Concrete
+
+──────────────
+Bottom Face
+```
+
+The panel lies at the **mid-surface of the waist**, offset along the run's local normal by half the waist thickness.
+
+---
+
+For a **Landing**:
+
+```text
+Top
+
+────────────
+
+Concrete
+
+────────────
+      ▲
+      │
+Half Thickness
+      │
+
+══════════════
+Panel
+══════════════
+
+Concrete
+
+────────────
+Bottom
+```
+
+The panel is horizontal and centered within the landing thickness.
+
+---
+
+# Level Assignment
+
+For each run:
+
+```text
+Start Level =
+Base Level + Previous Rise
+
+End Level =
+Start Level + Run Rise
+```
+
+Example:
+
+```text
+Run 1
+
+Start = 0 mm
+
+End = 1800 mm
+
+Gradient = 30°
+
+↓
+
+Landing
+
+Elevation = 1800 mm
+
+↓
+
+Run 2
+
+Start = 1800 mm
+
+End = 3600 mm
+```
+
+---
+
+# Recommended Class Structure
+
+```text
+StairAnalyzer
+│
+├── ReadStair()
+├── ReadRuns()
+├── ReadLandings()
+├── ComputeGeometry()
+├── ComputeLevels()
+├── ComputeGradients()
+└── BuildPanels()
+
+RunAnalyzer
+│
+├── Boundary
+├── Path
+├── Gradient
+├── Width
+├── Rise
+└── MidSurface
+
+LandingAnalyzer
+│
+├── Boundary
+├── Elevation
+└── MidPlane
+
+PanelBuilder
+│
+├── CreateRunPanel()
+├── CreateLandingPanel()
+└── ConnectPanels()
+```
+
+This separation keeps geometry extraction, analysis, and analytical panel creation independent, making the add-in easier to maintain and extend.
+
+One important note: **don't derive the run inclination from the boundary edges**. Always derive it from the stair's rise and horizontal run (or the run's path plus elevation data). The boundary geometry may include returns, nosings, or irregular shapes, whereas the path and elevation information define the true analytical centerline of the structural stair.
