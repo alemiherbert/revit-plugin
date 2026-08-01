@@ -1,0 +1,84 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Revit install directory can be overridden on the command line:
+      dotnet build -p:RevitInstallDir="D:\Autodesk\Revit 2027"
+    Defaults to the standard per-machine path.
+  -->
+  <PropertyGroup>
+    <RevitInstallDir Condition="'$(RevitInstallDir)' == ''">C:\Program Files\Autodesk\Revit 2027</RevitInstallDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Revit 2027 targets .NET 10 -->
+    <PlatformTarget>x64</PlatformTarget>
+    <Deterministic>true</Deterministic>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+    <!-- Assembly info -->
+    <AssemblyName>StructuralTools</AssemblyName>
+    <RootNamespace>StructuralTools</RootNamespace>
+    <Version>1.0.1</Version>
+    <Authors>Structural Tools</Authors>
+    <Description>Native Revit 2027 add-in for structural analysis tools</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Revit API references. Private=false so we don't ship Revit's own DLLs. -->
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitInstallDir)\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitInstallDir)\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AdWindows">
+      <HintPath>$(RevitInstallDir)\AdWindows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embedded WPF resources, loaded via Pack URI at runtime. -->
+    <Resource Include="Resources\Generate32.png" />
+    <Resource Include="Resources\Generate16.png" />
+    <Resource Include="Resources\Staircase32.png" />
+    <Resource Include="Resources\Staircase16.png" />
+    <Resource Include="Resources\Logo.png" />
+    <Resource Include="Resources\Settings16.png" />
+    <Resource Include="Resources\Settings32.png" />
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <PropertyGroup>
+      <RevitAddinsDir>$(APPDATA)\Autodesk\REVIT\Addins\2027</RevitAddinsDir>
+      <RevitAddinSubDir>$(RevitAddinsDir)\StructuralTools</RevitAddinSubDir>
+    </PropertyGroup>
+
+    <Message Importance="high"
+             Text="Post-build: Revit AddIns folder is '$(RevitAddinsDir)'"
+             Condition="!Exists('$(RevitAddinsDir)')" />
+
+    <!--
+      Only copy if Revit's Addins\2027 folder exists (i.e. Revit 2027 is installed).
+      The Copy task auto-creates the destination subdirectory if needed.
+    -->
+    <MakeDir Directories="$(RevitAddinSubDir)" Condition="Exists('$(RevitAddinsDir)')" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RevitAddinSubDir)"
+          Condition="Exists('$(RevitAddinsDir)')" />
+    <Copy SourceFiles="$(ProjectDir)StructuralTools.addin" DestinationFolder="$(RevitAddinsDir)"
+          Condition="Exists('$(RevitAddinsDir)')" />
+
+    <Message Importance="high"
+             Text="Deployed StructuralTools.dll to $(RevitAddinSubDir)"
+             Condition="Exists('$(RevitAddinsDir)')" />
+  </Target>
+
+</Project>

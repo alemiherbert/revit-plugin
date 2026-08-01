@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SupportedBuilds uses the Revit 2027 build number (27.x).
+  Remove the element entirely if you want the add-in to load on any 2027 sub-build.
+-->
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Structural Tools</Name>
+    <!--
+      Relative path from this .addin file to the assembly.
+      Post-build event places the DLL at:
+        %APPDATA%\Autodesk\REVIT\Addins\2027\StructuralTools\StructuralTools.dll
+      and this .addin file at:
+        %APPDATA%\Autodesk\REVIT\Addins\2027\StructuralTools.addin
+      So the relative reference must include the StructuralTools\ subfolder.
+    -->
+    <Assembly>StructuralTools\StructuralTools.dll</Assembly>
+    <AddInId>3F2A8B5C-7D9E-4A1F-B6C3-8E4D2F1A9C7B</AddInId>
+    <FullClassName>StructuralTools.App</FullClassName>
+    <Vendor>Structural Tools</Vendor>
+    <VendorId>StructuralTools</VendorId>
+    <SupportedBuilds>27.0.0.0</SupportedBuilds>
+  </AddIn>
+</RevitAddIns>
