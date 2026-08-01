@@ -1,4 +1,5 @@
 using Autodesk.Revit.DB;
+using StructuralTools.SketchEngine;
 
 namespace StructuralTools.StaircaseEngine;
 
@@ -17,11 +18,17 @@ public interface IEngineStrategy
 
 /// <summary>
 /// Routes a <see cref="StairNode"/> to the appropriate engine.
-/// Only sketch-based straight runs and landings are supported.
-/// Curved and winder runs have been removed.
+///
+/// Primary engine: <see cref="SketchEngineStrategy"/> — derives panel geometry
+/// from riser curves and the run/landing boundary; offsets every panel to the
+/// structural mid-surface of the waist slab.
+///
+/// <see cref="SketchEngineStrategy"/> falls back to <see cref="StraightEngine"/>
+/// internally when riser curves are unavailable, so this router always returns
+/// the sketch engine.
 /// </summary>
 public static class EngineRouter
 {
     public static IEngineStrategy GetEngine(StairNode node) =>
-        new StraightEngine();
+        new SketchEngineStrategy();
 }

@@ -150,7 +150,13 @@ public class StaircaseEngine
                          $"{nodePanels.Count} panel(s) via {engine.GetType().Name}.");
 
                 // Drain engine diagnostics into the summary log.
-                if (engine is StraightEngine se)
+                // Drain diagnostics from whichever engine ran.
+                if (engine is SketchEngine.SketchEngineStrategy)
+                {
+                    logs.AddRange(SketchEngine.SketchEngineStrategy.Diagnostics);
+                    SketchEngine.SketchEngineStrategy.Diagnostics.Clear();
+                }
+                else if (engine is StraightEngine)
                 {
                     logs.AddRange(StraightEngine.Diagnostics);
                     StraightEngine.Diagnostics.Clear();
