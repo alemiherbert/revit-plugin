@@ -67,16 +67,22 @@ Revit installed, the build still succeeds — the copy is silently skipped.
 ### Wall Load Generator
 
 1. Click **Analyze → Alemi's Tools → Generate Wall Loads**.
-2. Revit enters its native wall-selection mode:
-   - A green **Modify | Pick Walls** contextual tab appears.
-   - Only Wall elements (host model or linked) are clickable — everything else is greyed out.
-   - Click or box-select walls.
-   - Press **Finish (✓)** to confirm, or **Cancel (✗)** to abort.
-3. Revit then enters host-selection mode:
+2. **Pass 1 — walls in this model**:
+   - A green **Modify** contextual tab appears.
+   - Only Wall elements in the current document are clickable.
+   - Click or box-select walls. Press **Finish (✓)** when done.
+   - Press **Cancel (✗)** to abort the command entirely.
+   - Press **Finish (✓)** with nothing selected to skip this pass (linked-walls-only workflow).
+3. **Pass 2 — walls in linked models** (optional):
+   - A second green **Modify** contextual tab appears.
+   - Click or box-select walls inside linked models. Press **Finish (✓)** when done.
+   - Press **Cancel (✗)** to skip — no linked walls will be included. This is not an error.
+4. Revit then enters host-selection mode:
    - Only Floors and Structural Framing members (beams) are clickable.
-   - Pick the host beam or floor slab.
-   - Press **Finish (✓)** or **Cancel (✗)**.
-4. Loads are created in a single transaction. A summary dialog shows how many segments were created, any errors, and the first 20 log entries.
+   - Pick the host beam or floor slab. Press **Finish (✓)** or **Cancel (✗)**.
+5. Loads are created in a single transaction. A summary dialog shows how many segments were created, any errors, and the first 20 log entries.
+
+> **Why two passes?** Revit's `ObjectType.LinkedElement` picker — required for selecting elements inside linked models — does not expose host-document elements for selection. `ObjectType.Element` is used for the host pass and `ObjectType.LinkedElement` for the linked pass. Duplicate walls picked in both passes are silently ignored.
 
 ## How loads are computed
 

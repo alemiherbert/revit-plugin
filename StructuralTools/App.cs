@@ -38,9 +38,10 @@ public class App : IExternalApplication
             {
                 generateBtn.ToolTip = "Pick walls and generate line loads on a host beam or floor";
                 generateBtn.LongDescription =
-                    "Click to enter Revit's native wall-selection mode (only Wall elements are clickable). " +
-                    "Press Finish (✓) when done, then pick the host beam or floor. " +
-                    "Line loads are created in the current load case.";
+                    "Pass 1 — pick walls from THIS model (only Wall elements are clickable). " +
+                    "Press Finish (✓) when done, or Cancel (✗) to abort.\n" +
+                    "Pass 2 — pick walls from LINKED models. Cancel (✗) to skip (no linked walls needed).\n" +
+                    "Then pick the host beam or floor. Line loads are created in the current load case.";
                 generateBtn.LargeImage = LoadPackImage(assemblyName, "Generate32.png");
                 generateBtn.Image      = LoadPackImage(assemblyName, "Generate16.png");
             }
