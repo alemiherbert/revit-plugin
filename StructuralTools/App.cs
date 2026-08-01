@@ -41,7 +41,7 @@ public class App : IExternalApplication
                     "Pass 1 — pick walls from THIS model (only Wall elements are clickable). " +
                     "Press Finish (✓) when done, or Cancel (✗) to abort.\n" +
                     "Pass 2 — pick walls from LINKED models. Cancel (✗) to skip (no linked walls needed).\n" +
-                    "Then pick the host floor (only Floor elements are clickable). " +
+                    "Then pick the host beam or floor (only Floors and Structural Framing members are clickable). " +
                     "Line loads are created in the current load case.";
                 generateBtn.LargeImage = LoadPackImage(assemblyName, "Generate32.png");
                 generateBtn.Image      = LoadPackImage(assemblyName, "Generate16.png");
