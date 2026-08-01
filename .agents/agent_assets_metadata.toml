@@ -7,3 +7,10 @@ uri = "file://attached_assets/revit-plugin-fixed_22.zip"
 type = "unspecified"
 title = "revit-plugin-fixed_22.zip"
 description = "Staircase analytical model generator — 4 bugs fixed"
+
+[[outputs]]
+id = "fDSRzMQvs-RxdpzF-rdQd"
+uri = "file://attached_assets/revit-plugin-fixed_23.zip"
+type = "unspecified"
+title = "revit-plugin-fixed_23.zip"
+description = "Width, gradient, and transition-point fixes — footprint-derived run panels"
