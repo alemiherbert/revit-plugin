@@ -49,8 +49,6 @@
     <!-- Embedded WPF resources, loaded via Pack URI at runtime. -->
     <Resource Include="Resources\Generate32.png" />
     <Resource Include="Resources\Generate16.png" />
-    <Resource Include="Resources\Staircase32.png" />
-    <Resource Include="Resources\Staircase16.png" />
     <Resource Include="Resources\Logo.png" />
     <Resource Include="Resources\Settings16.png" />
     <Resource Include="Resources\Settings32.png" />

@@ -45,31 +45,6 @@ public class App : IExternalApplication
                 generateBtn.Image      = LoadPackImage(assemblyName, "Generate16.png");
             }
 
-            panel.AddSeparator();
-
-            // --- Staircase to Analytical (stub) ---
-            var staircaseBtn = panel.AddItem(
-                new PushButtonData(
-                    "StaircaseToAnalytical",
-                    "Staircase\nTo Analytical",
-                    assemblyPath,
-                    "StructuralTools.Commands.StaircaseToAnalyticalCommand"
-                )
-            ) as PushButton;
-
-            if (staircaseBtn != null)
-            {
-                staircaseBtn.ToolTip = "Convert staircases to analytical panels";
-                staircaseBtn.LongDescription =
-                    "Pick stairs (any type — straight, L-shaped, U-shaped/dogleg, Z-shaped, spiral, winder, " +
-                    "split, three-quarter turn). Each run becomes one slanted analytical panel; each landing " +
-                    "becomes one flat analytical panel. Concrete-stair idealisation — no analytical members. " +
-                    "The original stair geometry is preserved.";
-
-                staircaseBtn.LargeImage = LoadPackImage(assemblyName, "Staircase32.png");
-                staircaseBtn.Image      = LoadPackImage(assemblyName, "Staircase16.png");
-            }
-
             return Result.Succeeded;
         }
         catch (Exception ex)
