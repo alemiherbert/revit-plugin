@@ -1,0 +1,663 @@
+For a **sketch-based Revit stair**, don't think in terms of *runs* and *landings* initially. Instead, think in terms of a **graph extracted from the sketch**, then classify each region. This approach works even for U, L, Dogleg, Open-well, and complex custom stairs.
+
+The image you attached is a good example. The **green lines** are the stair boundaries and the **black lines** are risers. The blue line is the walk line. The algorithm should primarily use the **boundary and riser geometry** because they are always present in sketch stairs.
+
+---
+
+# Overview
+
+Input
+
+```
+Sketch Lines
+    Boundary curves
+    Riser curves
+    Path curve (optional)
+```
+
+Output
+
+```
+Run Panels
+Landing Panels
+
+Each panel receives
+
+Level
+Elevation
+Slope
+Thickness
+Location
+Analytical panel geometry
+```
+
+---
+
+# Stage 1. Read the sketch
+
+```
+boundaryLines = StairSketch.BoundaryCurves
+riserLines    = StairSketch.RiserCurves
+pathLine      = StairSketch.PathCurve
+```
+
+Convert all curves to 2D.
+
+Ignore Z.
+
+---
+
+# Stage 2. Build closed regions
+
+The boundary curves form one closed polygon.
+
+The risers subdivide this polygon.
+
+Imagine performing a polygon split.
+
+```
+Regions = SplitPolygon(boundaryPolygon, riserLines)
+```
+
+The result is something like
+
+```
+Run
+Run
+Run
+Landing
+Run
+Run
+```
+
+except you don't yet know which is which.
+
+---
+
+# Stage 3. Compute properties of every region
+
+For every region
+
+```
+Area
+
+Centroid
+
+Bounding Box
+
+Longest Edge
+
+Shortest Edge
+
+Number of adjacent risers
+
+Number of adjacent boundaries
+
+Orientation
+```
+
+---
+
+# Stage 4. Detect riser spacing
+
+Sort risers by position.
+
+Compute spacing.
+
+```
+spacing[i] = Distance(riser[i], riser[i+1])
+```
+
+Most stair runs have
+
+```
+spacing ≈ tread depth
+```
+
+This value becomes the "expected tread depth."
+
+```
+ExpectedTreadDepth =
+Median(spacing)
+```
+
+---
+
+# Stage 5. Classify Run vs Landing
+
+This is the key step.
+
+For every region
+
+Compute
+
+```
+adjacentRisers
+
+lengthAlongTravel
+
+width
+
+```
+
+### Rule 1
+
+Landing touches **zero risers**
+
+```
+adjacentRisers == 0
+
+=> Landing
+```
+
+---
+
+### Rule 2
+
+Landing touches only one riser
+
+```
+adjacentRisers == 1
+
+=> Landing
+```
+
+---
+
+### Rule 3
+
+Run touches multiple evenly spaced risers
+
+```
+adjacentRisers >=2
+
+AND
+
+spacing approximately constant
+
+=> Run
+```
+
+---
+
+### Rule 4
+
+Run aspect ratio
+
+Runs are long.
+
+```
+Length / Width > 1.5
+```
+
+Landings tend toward
+
+```
+Length ≈ Width
+```
+
+---
+
+### Rule 5
+
+Run contains risers
+
+If risers cross the region
+
+```
+Run
+```
+
+---
+
+For your example
+
+```
+LEFT
+
+Run
+
+CENTER
+
+Landing
+
+RIGHT
+
+Run
+```
+
+---
+
+# Stage 6. Determine stair order
+
+Runs must be ordered from bottom to top.
+
+Build connectivity.
+
+```
+Landing
+
+connects
+
+Run A
+
+Run B
+```
+
+Represent as graph.
+
+```
+Run1 ---- Landing ---- Run2
+```
+
+Traverse graph.
+
+```
+Start Run
+
+↓
+
+Landing
+
+↓
+
+Next Run
+
+↓
+
+Landing
+
+↓
+
+...
+```
+
+---
+
+# Stage 7. Determine travel direction
+
+If Revit exposes the stair path
+
+```
+Use Stair Path
+```
+
+Otherwise
+
+Use centroids.
+
+```
+Run centroid
+
+↓
+
+Landing centroid
+
+↓
+
+Run centroid
+```
+
+This gives travel direction.
+
+---
+
+# Stage 8. Assign elevations
+
+Suppose
+
+```
+Base Level = 0
+
+Top Level = 3600
+
+18 Risers
+```
+
+Then
+
+```
+Riser Height
+
+=
+
+3600/18
+
+=
+
+200 mm
+```
+
+For every run
+
+Determine
+
+```
+First Riser Index
+
+Last Riser Index
+```
+
+Example
+
+```
+Run1
+
+Risers
+
+1..9
+
+Start Elevation
+
+0
+
+End Elevation
+
+1800
+```
+
+Run2
+
+```
+Risers
+
+10..18
+
+Start
+
+1800
+
+End
+
+3600
+```
+
+Landing
+
+```
+Elevation
+
+1800
+```
+
+---
+
+# Stage 9. Compute run gradient
+
+Run slope
+
+```
+Rise
+
+/
+
+Horizontal Length
+```
+
+```
+Rise
+
+=
+
+RiserCount
+
+×
+
+RiserHeight
+```
+
+Horizontal
+
+```
+=
+
+TreadCount
+
+×
+
+TreadDepth
+```
+
+```
+Slope
+
+=
+
+Rise/Run
+```
+
+Store
+
+```
+Panel.Normal
+
+Panel.Transform
+
+Panel.Slope
+```
+
+---
+
+# Stage 10. Place analytical panels
+
+Runs
+
+Construct a plane.
+
+```
+Plane origin
+
+=
+
+Run centroid
+
++
+
+Z(start)
+
++
+
+Half Waist Thickness
+```
+
+Rotate plane by stair angle.
+
+Extrude panel.
+
+---
+
+Landing
+
+Plane is horizontal.
+
+```
+Normal
+
+=
+
+(0,0,1)
+```
+
+Elevation
+
+```
+LandingElevation
+
++
+
+HalfThickness
+```
+
+---
+
+# Stage 11. Locate panel at waist center
+
+Suppose
+
+```
+Waist Thickness
+
+=
+
+200 mm
+```
+
+Panel should lie at
+
+```
+100 mm
+
+inside
+```
+
+the concrete.
+
+For a run
+
+```
+PanelPlane
+
+=
+
+RunPlane
+
+Offset
+
+=
+
+WaistThickness/2
+```
+
+Offset **along the run's plane normal**, not vertically. This ensures the analytical panel lies at the mid-surface of the inclined waist slab.
+
+For landing
+
+```
+PanelPlane
+
+=
+
+Horizontal Plane
+
++
+
+Thickness/2
+```
+
+---
+
+# Overall pseudocode
+
+```text
+Extract Boundary Curves
+
+Extract Riser Curves
+
+Extract Path Curve
+
+↓
+
+Build Closed Polygon
+
+↓
+
+Split Polygon Using Risers
+
+↓
+
+For each Region
+
+    Compute Area
+
+    Compute Aspect Ratio
+
+    Count Adjacent Risers
+
+    Compute Orientation
+
+↓
+
+Classify
+
+    if AdjacentRisers >= 2
+
+         Region = Run
+
+    else
+
+         Region = Landing
+
+↓
+
+Build Connectivity Graph
+
+Run ↔ Landing ↔ Run
+
+↓
+
+Traverse Graph
+
+↓
+
+Assign Riser Numbers
+
+↓
+
+Compute Elevations
+
+↓
+
+For each Run
+
+    Compute Start Level
+
+    Compute End Level
+
+    Compute Gradient
+
+    Create Inclined Panel
+
+↓
+
+For each Landing
+
+    Compute Elevation
+
+    Create Horizontal Panel
+
+↓
+
+Offset Every Panel
+
+by WaistThickness/2
+
+along its local normal
+
+↓
+
+Output Analytical Model
+```
+
+## Recommended C# architecture
+
+Instead of coding this as one large procedure, model it as a pipeline of independent components:
+
+```text
+SketchExtractor
+    ↓
+TopologyBuilder
+    ↓
+RegionClassifier
+    ↓
+ConnectivityGraphBuilder
+    ↓
+StairTraversalSolver
+    ↓
+ElevationAssigner
+    ↓
+PanelGenerator
+    ↓
+AnalyticalModelBuilder
+```
+
+Each stage has a single responsibility, making it easier to test and extend. For example, if you later support monolithic, precast, spiral, or winder stairs, you'll primarily modify the `RegionClassifier` and `StairTraversalSolver` while leaving the panel generation logic unchanged. This graph-based pipeline is considerably more robust than relying on geometric heuristics alone because it uses the topological relationships inherent in the stair sketch.
