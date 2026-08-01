@@ -25,7 +25,9 @@
     <AssemblyName>StructuralTools</AssemblyName>
     <RootNamespace>StructuralTools</RootNamespace>
     <Version>1.0.1</Version>
-    <Authors>Structural Tools</Authors>
+    <Authors>Alemi Herbert</Authors>
+    <Company>Alemi Herbert</Company>
+    <Copyright>Copyright © Alemi Herbert 2025</Copyright>
     <Description>Native Revit 2027 add-in for structural analysis tools</Description>
   </PropertyGroup>
 
