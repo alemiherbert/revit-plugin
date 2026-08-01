@@ -210,9 +210,9 @@ public class WallLoadEngine
     }
 
     /// <summary>
-    /// Pick the host beam or floor (current model only). Returns null on cancel.
-    /// Uses an <see cref="ISelectionFilter"/> so only Floors and Structural Framing
-    /// members are clickable — everything else is greyed out.
+    /// Pick the host floor (current model only). Returns null on cancel.
+    /// Uses <see cref="HostElementFilter"/> so only Floor elements are clickable —
+    /// everything else is greyed out.
     /// </summary>
     private Element? PickHost()
     {
@@ -222,7 +222,7 @@ public class WallLoadEngine
             r = _uiDoc.Selection.PickObject(
                 ObjectType.Element,
                 new HostElementFilter(),
-                "Select the host beam or floor (current model only).");
+                "Select the host floor (current model only).");
         }
         catch (RevitOperationCanceledException)
         {
@@ -610,21 +610,13 @@ public class WallLoadEngine
     }
 
     /// <summary>
-    /// Filter that allows selecting only Floors and Structural Framing members
-    /// (beams) in the current document. Linked elements are not allowed because
-    /// analytical loads must be hosted on elements in the current model.
+    /// Filter that allows selecting only Floor elements in the current document.
+    /// Linked elements are not allowed — analytical loads must be hosted on
+    /// elements in the current (host) model.
     /// </summary>
     private class HostElementFilter : ISelectionFilter
     {
-        public bool AllowElement(Element elem)
-        {
-            if (elem is Floor) return true;
-            if (elem.Category != null &&
-                elem.Category.Id == new ElementId(BuiltInCategory.OST_StructuralFraming))
-                return true;
-            return false;
-        }
-
+        public bool AllowElement(Element elem) => elem is Floor;
         public bool AllowReference(Reference reference, XYZ position) => false;
     }
 
