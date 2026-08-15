@@ -586,27 +586,10 @@ public class GenerateWallLoadsCommand : IExternalCommand
     }
 }
 
-/// <summary>
-/// Stub command for staircase to analytical conversion (placeholder).
-/// </summary>
-[Transaction(TransactionMode.Manual)]
-[Regeneration(RegenerationOption.Manual)]
-public class StaircaseToAnalyticalCommand : IExternalCommand
-{
-    public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
-    {
-        TaskDialog.Show("Structural Tools",
-            "Staircase to Analytical conversion is not yet implemented.\n\n" +
-            "This command will convert staircases (any type) to analytical panels:\n" +
-            "- Each run becomes one slanted analytical panel\n" +
-            "- Each landing becomes one flat analytical panel");
-        return Result.Cancelled;
-    }
-}
-
 // =====================================================================
 // ENGINE
 // =====================================================================
+
 
 /// <summary>
 /// Orchestrates the Wall → Line Load generator using native Revit selection.

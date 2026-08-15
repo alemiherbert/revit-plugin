@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("Native Revit 2027 add-in for structural analysis tools")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.1.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.1+f3bb5a472d4e3c674d5cc3fa34aa82e7ba0d9be4")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.1+f805b0b626708feed0986d1a1c0d3a3911378882")]
 [assembly: System.Reflection.AssemblyProductAttribute("StructuralTools")]
 [assembly: System.Reflection.AssemblyTitleAttribute("StructuralTools")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.1.0")]
