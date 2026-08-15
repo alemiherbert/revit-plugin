@@ -1224,11 +1224,13 @@ public class WallLoadEngine
     }
 
     /// <summary>
-    /// Filter that allows selecting walls accessible through linked models.
+    /// Filter that allows selecting link instances (to pick walls accessible through linked models).
+    /// When ObjectType.LinkedElement is used, Revit passes RevitLinkInstance elements to this filter,
+    /// not the elements inside the links. The actual linked wall filtering happens in PickWalls().
     /// </summary>
     private class LinkedWallFilter : ISelectionFilter
     {
-        public bool AllowElement(Element elem) => elem is Wall;
+        public bool AllowElement(Element elem) => elem is RevitLinkInstance;
 
         public bool AllowReference(Reference reference, XYZ position) => true;
     }
