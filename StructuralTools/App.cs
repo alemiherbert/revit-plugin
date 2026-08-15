@@ -45,6 +45,30 @@ public class App : IExternalApplication
                 generateBtn.Image      = LoadPackImage(assemblyName, "Generate16.png");
             }
 
+            panel.AddSeparator();
+
+            // --- Highlight Problematic Loads button ---
+            var highlightBtn = panel.AddItem(
+                new PushButtonData(
+                    "HighlightProblematicLoads",
+                    "Highlight\nProblematic Loads",
+                    assemblyPath,
+                    "StructuralTools.HighlightProblematicLoadsCommand"
+                )
+            ) as PushButton;
+
+            if (highlightBtn != null)
+            {
+                highlightBtn.ToolTip = "Highlight line loads with warnings (not fully hosted)";
+                highlightBtn.LongDescription =
+                    "Diagnostic tool: Identifies line loads that have Revit warnings " +
+                    "(typically due to partial overhang from analytical elements) and " +
+                    "highlights them in red in the current view. Clean loads are unmarked. " +
+                    "This helps quickly identify problematic loads that need fixing.";
+                highlightBtn.LargeImage = LoadPackImage(assemblyName, "Generate32.png");
+                highlightBtn.Image      = LoadPackImage(assemblyName, "Generate16.png");
+            }
+
             return Result.Succeeded;
         }
         catch (Exception ex)

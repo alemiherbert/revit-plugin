@@ -586,6 +586,122 @@ public class GenerateWallLoadsCommand : IExternalCommand
     }
 }
 
+/// <summary>
+/// Diagnostic command that identifies line loads with warnings (not fully hosted on analytical elements)
+/// and highlights them in red in the current view. Warnings typically indicate loads that partially
+/// overhang the analytical structure, which can cause structural analysis issues.
+/// </summary>
+[Transaction(TransactionMode.Manual)]
+[Regeneration(RegenerationOption.Manual)]
+public class HighlightProblematicLoadsCommand : IExternalCommand
+{
+    public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+    {
+        UIApplication uiApp = commandData.Application;
+
+        if (uiApp.ActiveUIDocument == null)
+        {
+            TaskDialog.Show("Structural Tools",
+                "Open a Revit document before running this command.");
+            return Result.Cancelled;
+        }
+
+        try
+        {
+            var doc = uiApp.ActiveUIDocument.Document;
+            var activeView = uiApp.ActiveUIDocument.ActiveView;
+
+            if (activeView == null)
+            {
+                TaskDialog.Show("Structural Tools",
+                    "Open a view (plan or 3D) before running this command.");
+                return Result.Cancelled;
+            }
+
+            // Collect all line loads
+            var allLineLoads = new FilteredElementCollector(doc)
+                .OfClass(typeof(LineLoad))
+                .WhereElementIsNotElementType()
+                .Cast<LineLoad>()
+                .ToList();
+
+            if (allLineLoads.Count == 0)
+            {
+                TaskDialog.Show("Structural Tools",
+                    "No line loads found in the model.");
+                return Result.Cancelled;
+            }
+
+            // Collect IDs of line loads with warnings
+            var warnedLoadIds = new HashSet<ElementId>();
+            var warningMessages = new HashSet<string>();
+
+            foreach (var warning in doc.GetWarnings())
+            {
+                try
+                {
+                    string warningText = warning.GetDescriptionText();
+                    var failingElementIds = warning.GetFailingElements();
+
+                    foreach (var elementId in failingElementIds)
+                    {
+                        if (allLineLoads.Any(ll => ll.Id == elementId))
+                        {
+                            warnedLoadIds.Add(elementId);
+                            if (!string.IsNullOrEmpty(warningText))
+                                warningMessages.Add(warningText);
+                        }
+                    }
+                }
+                catch { /* Skip problematic warnings */ }
+            }
+
+            // Apply red override to warned loads, clear override for clean loads
+            var red = new Color(255, 0, 0);
+            var ogs_red = new OverrideGraphicSettings().SetProjectionLineColor(red);
+            var ogs_clear = new OverrideGraphicSettings();
+
+            using (var tx = new Transaction(doc, "Highlight Problematic Loads"))
+            {
+                tx.Start();
+
+                foreach (var lineLoad in allLineLoads)
+                {
+                    if (warnedLoadIds.Contains(lineLoad.Id))
+                        activeView.SetElementOverrides(lineLoad.Id, ogs_red);
+                    else
+                        activeView.SetElementOverrides(lineLoad.Id, ogs_clear);
+                }
+
+                tx.Commit();
+            }
+
+            // Show summary
+            string summary = 
+                $"✅ Visualization updated in '{activeView.Name}'\n\n" +
+                $"Problematic loads (with warnings): {warnedLoadIds.Count}\n" +
+                $"Clean loads: {allLineLoads.Count - warnedLoadIds.Count}\n" +
+                $"Total loads: {allLineLoads.Count}\n\n" +
+                "Problematic loads are highlighted in RED.\n" +
+                "These loads may not be fully hosted on analytical elements.\n\n";
+
+            if (warningMessages.Count > 0)
+            {
+                summary += "Sample warnings:\n" + string.Join("\n", warningMessages.Take(3));
+            }
+
+            TaskDialog.Show("Load Diagnostic", summary);
+            return Result.Succeeded;
+        }
+        catch (Exception ex)
+        {
+            message = $"Error highlighting loads: {ex.Message}\n\n{ex.StackTrace}";
+            TaskDialog.Show("Structural Tools - Error", message);
+            return Result.Failed;
+        }
+    }
+}
+
 // =====================================================================
 // ENGINE
 // =====================================================================
