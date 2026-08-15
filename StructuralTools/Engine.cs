@@ -1116,11 +1116,43 @@ public class WallLoadEngine
 
     private ElementId GetAnalyticalId(Element physElem)
     {
+        if (physElem == null) return ElementId.InvalidElementId;
+
         try
         {
             var mgr = AnalyticalToPhysicalAssociationManager
                           .GetAnalyticalToPhysicalAssociationManager(_doc);
-            return mgr.GetAssociatedElementId(physElem.Id);
+            
+            // Try direct association first (works for beams and some other elements)
+            var analId = mgr.GetAssociatedElementId(physElem.Id);
+            if (analId != ElementId.InvalidElementId && analId.Value != physElem.Id.Value)
+            {
+                return analId;
+            }
+            
+            // For floors, use reverse lookup: search analytical elements for one associated with this floor
+            if (physElem is Floor)
+            {
+                var analElements = new FilteredElementCollector(_doc)
+                    .OfClass(typeof(AnalyticalElement))
+                    .Cast<AnalyticalElement>()
+                    .ToList();
+                
+                foreach (var analElem in analElements)
+                {
+                    try
+                    {
+                        var assocPhysId = mgr.GetAssociatedElementId(analElem.Id);
+                        if (assocPhysId == physElem.Id)
+                        {
+                            return analElem.Id;
+                        }
+                    }
+                    catch { /* continue searching */ }
+                }
+            }
+            
+            return ElementId.InvalidElementId;
         }
         catch (Exception ex)
         {
