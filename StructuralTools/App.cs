@@ -30,7 +30,7 @@ public class App : IExternalApplication
                     "GenerateWallLoads",
                     "Generate\nWall Loads",
                     assemblyPath,
-                    "StructuralTools.Commands.GenerateWallLoadsCommand"
+                    "StructuralTools.GenerateWallLoadsCommand"
                 )
             ) as PushButton;
 
@@ -53,7 +53,7 @@ public class App : IExternalApplication
                     "StaircaseToAnalytical",
                     "Staircase\nTo Analytical",
                     assemblyPath,
-                    "StructuralTools.Commands.StaircaseToAnalyticalCommand"
+                    "StructuralTools.StaircaseToAnalyticalCommand"
                 )
             ) as PushButton;
 

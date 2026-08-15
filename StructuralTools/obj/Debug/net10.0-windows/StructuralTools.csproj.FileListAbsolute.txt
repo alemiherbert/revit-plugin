@@ -1,0 +1,14 @@
+D:\Revit Training\revit-plugin\StructuralTools\bin\Debug\net10.0-windows\StructuralTools.deps.json
+D:\Revit Training\revit-plugin\StructuralTools\bin\Debug\net10.0-windows\StructuralTools.dll
+D:\Revit Training\revit-plugin\StructuralTools\bin\Debug\net10.0-windows\StructuralTools.pdb
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\StructuralTools.csproj.AssemblyReference.cache
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\StructuralTools.g.resources
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\StructuralTools.GeneratedMSBuildEditorConfig.editorconfig
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\StructuralTools.AssemblyInfoInputs.cache
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\StructuralTools.AssemblyInfo.cs
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\StructuralTools.csproj.CoreCompileInputs.cache
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\StructuralTools.sourcelink.json
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\StructuralTools.dll
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\refint\StructuralTools.dll
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\StructuralTools.pdb
+D:\Revit Training\revit-plugin\StructuralTools\obj\Debug\net10.0-windows\ref\StructuralTools.dll

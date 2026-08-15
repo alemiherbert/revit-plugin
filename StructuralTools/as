@@ -1,0 +1,562 @@
+# -*- coding: utf-8 -*-
+__title__   = "Wall Line\nLoad"
+__doc__     = """Version = 2.1
+★ Date     = 18.05.2026
+_____________________________________________________________________
+★ Description:
+➤ Places wall centerlines grouped by type with unique line styles.
+➤ ECP 201 Load Mapping Panel: DataGrid to assign kN/m loads per type.
+➤ Labels show: Wall Type | Height | Dead Load (kN/m).
+➤ Smart Leaders pointing to the exact wall center to prevent clashing.
+"""
+__author__  = "Mostafa Nour"
+__version__ = "2.1"
+
+# ---------------------------------------------------------------------------
+# Imports
+# ---------------------------------------------------------------------------
+import clr
+clr.AddReference("System.Windows.Forms")
+clr.AddReference("System.Drawing")
+
+import System.Windows.Forms as SWF
+import System.Drawing       as SD
+
+from pyrevit import revit, DB, forms, script, output
+import math
+
+from Autodesk.Revit.DB import (
+    Transaction,
+    FilteredElementCollector,
+    BuiltInCategory,
+    BuiltInParameter,
+    Wall,
+    WallKind,
+    TextNote,
+    TextNoteType,
+    TextNoteOptions,
+    HorizontalTextAlignment,
+    GraphicsStyleType,
+    UnitUtils,
+    UnitTypeId,
+    XYZ,
+    Color as RevitColor,
+)
+from Autodesk.Revit.UI.Selection import ObjectType
+
+doc   = revit.doc
+uidoc = revit.uidoc
+view  = doc.ActiveView
+out   = output.get_output()
+out.close_others(all_open_outputs=False)
+
+FT_PER_MM = 1.0 / 304.8   # mm -> internal Revit feet
+
+
+# ===========================================================================
+# CONSTANTS
+# ===========================================================================
+PALETTE = [
+    (0,   122, 204),   # blue
+    (214, 59,  24),   # red-orange
+    (0,   160, 80),   # green
+    (180, 80, 220),   # purple
+    (230, 140,   0),   # amber
+    (0,   180, 190),   # teal
+    (180, 50,  90),   # crimson
+    (100, 80, 200),   # indigo
+    (60,  160, 160),   # cyan
+    (200, 120,   0),   # gold
+]
+
+DENSITY_RULES = [
+    (["brick",       "\u0637\u0648\u0628", "masonry",  "clay"],         18.0),
+    (["rc ",         "reinforced", "concrete", "\u062e\u0631\u0633\u0627\u0646\u0629", "cast"], 24.0),
+    (["block",       "cmu",     "hollow",   "\u0627\u0633\u0645\u0646\u062a"],         14.0),
+    (["partition",   "gypsum",  "light",    "\u062d\u0648\u0627\u062c\u0632", "drywall"],  8.0),
+    (["stone",       "\u062d\u062c\u0631",   "limestone"],                           22.0),
+    (["aac",         "aircrete", "ytong"],                                   7.0),
+]
+DEFAULT_DENSITY = 18.0   # kN/m3 masonry fallback
+
+
+# ===========================================================================
+# HELPER FUNCTIONS
+# ===========================================================================
+
+def get_wall_height_mm(wall):
+    p = wall.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)
+    if p is not None and p.AsDouble() > 0.001:
+        return UnitUtils.ConvertFromInternalUnits(p.AsDouble(), UnitTypeId.Millimeters)
+    bb = wall.get_BoundingBox(None)
+    if bb is not None:
+        return (bb.Max.Z - bb.Min.Z) * 304.8   # feet -> mm
+    return 3000.0
+
+
+def get_wall_thickness_mm(wall):
+    wt = doc.GetElement(wall.GetTypeId())
+    try:
+        cs = wt.GetCompoundStructure()
+        if cs is not None:
+            return UnitUtils.ConvertFromInternalUnits(cs.GetWidth(), UnitTypeId.Millimeters)
+    except Exception:
+        pass
+    p = wt.get_Parameter(BuiltInParameter.WALL_ATTR_WIDTH_PARAM)
+    if p is not None and p.AsDouble() > 0.0:
+        return UnitUtils.ConvertFromInternalUnits(p.AsDouble(), UnitTypeId.Millimeters)
+    return 200.0
+
+
+def guess_density(type_name):
+    name_lower = type_name.lower()
+    for keywords, density in DENSITY_RULES:
+        if any(k in name_lower for k in keywords):
+            return density
+    return DEFAULT_DENSITY
+
+
+def calc_suggested_load(thickness_mm, height_mm, density_knm3):
+    return round(density_knm3 * (thickness_mm / 1000.0) * (height_mm / 1000.0), 2)
+
+
+def get_wall_angle(curve):
+    """
+    Return the wall direction angle in radians (measured from X-axis).
+    Used to rotate the TextNote so it aligns with the wall in plan view.
+
+    The angle is clamped to (-90°, +90°] so text is never upside-down.
+    Revit's KeepRotatedTextReadable flag handles this automatically, but
+    the manual clamp is a safe backup for older Revit versions.
+    """
+    start    = curve.GetEndPoint(0)
+    end      = curve.GetEndPoint(1)
+    wall_dir = (end - start)
+    if wall_dir.GetLength() < 1e-9:
+        return 0.0
+    wall_dir = wall_dir.Normalize()
+    angle    = math.atan2(wall_dir.Y, wall_dir.X)
+    # Keep text readable — never rotate past ±90°
+    if angle >  math.pi / 2.0:
+        angle -= math.pi
+    elif angle < -math.pi / 2.0:
+        angle += math.pi
+    return angle
+
+
+def get_mid_point(curve):
+    """Return the XY midpoint of the wall location curve."""
+    return curve.Evaluate(0.5, True)
+
+
+# ===========================================================================
+# WINFORMS FORM
+# ===========================================================================
+
+class LoadMappingForm(SWF.Form):
+
+    def __init__(self, wall_data):
+        SWF.Form.__init__(self)
+
+        self.Text            = "WallLineLoad v2.1"
+        self.ClientSize      = SD.Size(870, 520)
+        self.MinimumSize     = SD.Size(870, 520)
+        self.StartPosition   = SWF.FormStartPosition.CenterScreen
+        self.BackColor       = SD.Color.FromArgb(28, 28, 30)
+        self.Font            = SD.Font("Segoe UI", 9)
+
+        lbl_desc = SWF.Label()
+        lbl_desc.Text      = "Auto-suggested loads use ECP 201. Edit 'Your Load' cells as needed. Uncheck rows to skip."
+        lbl_desc.Location  = SD.Point(10, 12)
+        lbl_desc.Size      = SD.Size(845, 22)
+        lbl_desc.ForeColor = SD.Color.FromArgb(170, 170, 180)
+        lbl_desc.Font      = SD.Font("Segoe UI", 9, SD.FontStyle.Italic)
+        self.Controls.Add(lbl_desc)
+
+        dgv = SWF.DataGridView()
+        dgv.Location              = SD.Point(10, 42)
+        dgv.Size                  = SD.Size(850, 410)
+        dgv.BackgroundColor       = SD.Color.FromArgb(38, 38, 42)
+        dgv.GridColor             = SD.Color.FromArgb(65, 65, 75)
+        dgv.BorderStyle           = getattr(SWF.BorderStyle, "None")
+        dgv.SelectionMode         = SWF.DataGridViewSelectionMode.FullRowSelect
+        dgv.RowHeadersVisible     = False
+        dgv.AllowUserToAddRows    = False
+        dgv.AllowUserToDeleteRows = False
+        dgv.AutoSizeColumnsMode   = getattr(SWF.DataGridViewAutoSizeColumnsMode, "None")
+        dgv.EnableHeadersVisualStyles = False
+
+        hdr = dgv.ColumnHeadersDefaultCellStyle
+        hdr.BackColor = SD.Color.FromArgb(48, 48, 58)
+        hdr.ForeColor = SD.Color.FromArgb(200, 200, 212)
+        hdr.Font      = SD.Font("Segoe UI", 9, SD.FontStyle.Bold)
+        dgv.ColumnHeadersHeight   = 30
+        dgv.ColumnHeadersBorderStyle = SWF.DataGridViewHeaderBorderStyle.Single
+
+        dcs = dgv.DefaultCellStyle
+        dcs.BackColor         = SD.Color.FromArgb(45, 45, 50)
+        dcs.ForeColor         = SD.Color.FromArgb(215, 215, 225)
+        dcs.SelectionBackColor = SD.Color.FromArgb(0, 100, 160)
+        dcs.SelectionForeColor = SD.Color.White
+        dcs.Font               = SD.Font("Segoe UI", 9)
+
+        ars = dgv.AlternatingRowsDefaultCellStyle
+        ars.BackColor = SD.Color.FromArgb(38, 38, 44)
+
+        chk_col               = SWF.DataGridViewCheckBoxColumn()
+        chk_col.Name          = "include"
+        chk_col.HeaderText    = "OK"
+        chk_col.Width         = 38
+        chk_col.ReadOnly      = False
+        dgv.Columns.Add(chk_col)
+
+        def add_col(name, header, width, read_only, align_right=True, editable_style=False):
+            col            = SWF.DataGridViewTextBoxColumn()
+            col.Name       = name
+            col.HeaderText = header
+            col.Width      = width
+            col.ReadOnly   = read_only
+            col.DefaultCellStyle.Alignment = (
+                SWF.DataGridViewContentAlignment.MiddleRight if align_right
+                else SWF.DataGridViewContentAlignment.MiddleLeft
+            )
+            if read_only and name != "type_name":
+                col.DefaultCellStyle.BackColor = SD.Color.FromArgb(36, 36, 40)
+                col.DefaultCellStyle.ForeColor = SD.Color.FromArgb(130, 130, 145)
+            if editable_style:
+                col.DefaultCellStyle.BackColor = SD.Color.FromArgb(20, 55, 90)
+                col.DefaultCellStyle.ForeColor = SD.Color.White
+                col.DefaultCellStyle.Font      = SD.Font("Segoe UI", 9, SD.FontStyle.Bold)
+                col.DefaultCellStyle.SelectionBackColor = SD.Color.FromArgb(0, 120, 200)
+            dgv.Columns.Add(col)
+
+        add_col("type_name",   "Wall Type",           220, True,  align_right=False)
+        add_col("count",       "Count",                55, True)
+        add_col("thick_mm",    "Thickness (mm)",      115, True)
+        add_col("height_m",    "Avg Height (m)",       95, True)
+        add_col("suggested",   "Suggested kN/m",      120, True)
+        add_col("your_load",   "Your Load kN/m",      120, False, editable_style=True)
+
+        for wd in wall_data:
+            dgv.Rows.Add(
+                True,
+                wd["type_name"],
+                str(wd["count"]),
+                "{:.0f}".format(wd["avg_thickness_mm"]),
+                "{:.2f}".format(wd["avg_height_mm"] / 1000.0),
+                "{:.2f}".format(wd["suggested_load"]),
+                "{:.2f}".format(wd["suggested_load"]),
+            )
+
+        self.dgv = dgv
+        self.Controls.Add(dgv)
+
+        self.btn_all = SWF.Button()
+        self.btn_all.Text      = "Select All"
+        self.btn_all.Location  = SD.Point(10, 462)
+        self.btn_all.Size      = SD.Size(90, 34)
+        self.btn_all.BackColor = SD.Color.FromArgb(55, 55, 60)
+        self.btn_all.ForeColor = SD.Color.White
+        self.btn_all.FlatStyle = SWF.FlatStyle.Flat
+        self.btn_all.Click    += self._on_select_all
+        self.Controls.Add(self.btn_all)
+
+        self.btn_reset = SWF.Button()
+        self.btn_reset.Text      = "Reset Loads"
+        self.btn_reset.Location  = SD.Point(110, 462)
+        self.btn_reset.Size      = SD.Size(95, 34)
+        self.btn_reset.BackColor = SD.Color.FromArgb(55, 55, 60)
+        self.btn_reset.ForeColor = SD.Color.White
+        self.btn_reset.FlatStyle = SWF.FlatStyle.Flat
+        self.btn_reset.Click    += self._on_reset_loads
+        self.Controls.Add(self.btn_reset)
+
+        self.btn_apply = SWF.Button()
+        self.btn_apply.Text      = "Apply"
+        self.btn_apply.Location  = SD.Point(660, 462)
+        self.btn_apply.Size      = SD.Size(100, 34)
+        self.btn_apply.BackColor = SD.Color.FromArgb(0, 122, 204)
+        self.btn_apply.ForeColor = SD.Color.White
+        self.btn_apply.FlatStyle = SWF.FlatStyle.Flat
+        self.btn_apply.Font      = SD.Font("Segoe UI", 9, SD.FontStyle.Bold)
+        self.btn_apply.Click    += self._on_apply
+        self.Controls.Add(self.btn_apply)
+
+        self.btn_cancel = SWF.Button()
+        self.btn_cancel.Text      = "Cancel"
+        self.btn_cancel.Location  = SD.Point(770, 462)
+        self.btn_cancel.Size      = SD.Size(90, 34)
+        self.btn_cancel.BackColor = SD.Color.FromArgb(55, 55, 62)
+        self.btn_cancel.ForeColor = SD.Color.White
+        self.btn_cancel.FlatStyle = SWF.FlatStyle.Flat
+        self.btn_cancel.Click    += self._on_cancel
+        self.Controls.Add(self.btn_cancel)
+
+        self.mapping = {}
+
+    def _on_select_all(self, sender, e):
+        for row in self.dgv.Rows:
+            row.Cells["include"].Value = True
+
+    def _on_reset_loads(self, sender, e):
+        for row in self.dgv.Rows:
+            row.Cells["your_load"].Value = row.Cells["suggested"].Value
+
+    def _on_apply(self, sender, e):
+        self.mapping = {}
+        for row in self.dgv.Rows:
+            type_name = str(row.Cells["type_name"].Value or "")
+            include   = bool(row.Cells["include"].Value)
+            try:
+                load_val = float(str(row.Cells["your_load"].Value or "0").replace(",", "."))
+            except (ValueError, TypeError):
+                load_val = 0.0
+            self.mapping[type_name] = (include, load_val)
+        self.DialogResult = SWF.DialogResult.OK
+        self.Close()
+
+    def _on_cancel(self, sender, e):
+        self.DialogResult = SWF.DialogResult.Cancel
+        self.Close()
+
+
+# ===========================================================================
+# FLOW EXECUTION
+# ===========================================================================
+
+mode = forms.CommandSwitchWindow.show(
+    ["Selected Walls", "Walls In Active View"],
+    message="Choose wall source:"
+)
+if not mode:
+    script.exit()
+
+text_type_elems = list(FilteredElementCollector(doc).OfClass(TextNoteType).ToElements())
+
+if not text_type_elems:
+    forms.alert("No TextNote Types found in the project.", exitscript=True)
+
+type_name_map = {}
+for tt in text_type_elems:
+    try:
+        name = tt.Name
+        if name:
+            type_name_map[name] = tt
+    except Exception:
+        p = tt.get_Parameter(BuiltInParameter.ALL_MODEL_TYPE_NAME)
+        if p and p.AsString():
+            type_name_map[p.AsString()] = tt
+
+if not type_name_map:
+    forms.alert("Could not extract names for TextNote Types.", exitscript=True)
+
+chosen_name = forms.SelectFromList.show(
+    sorted(type_name_map.keys()),
+    title="Select Text Note Type",
+    button_name="Select"
+)
+if not chosen_name:
+    script.exit()
+
+text_type = type_name_map[chosen_name]
+
+walls = []
+if mode == "Selected Walls":
+    try:
+        refs = uidoc.Selection.PickObjects(ObjectType.Element, "Select walls")
+        for r in refs:
+            w = doc.GetElement(r.ElementId)
+            if isinstance(w, Wall) and w.WallType.Kind != WallKind.Curtain:
+                walls.append(w)
+    except Exception:
+        script.exit()
+else:
+    for w in (FilteredElementCollector(doc, view.Id)
+              .OfClass(Wall)
+              .WhereElementIsNotElementType()
+              .ToElements()):
+        if w.WallType.Kind != WallKind.Curtain:
+            walls.append(w)
+
+if not walls:
+    forms.alert("No non-curtain walls found.", exitscript=True)
+
+wall_groups = {}
+for w in walls:
+    wt        = doc.GetElement(w.GetTypeId())
+    type_name = wt.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString() or "Unknown"
+    if type_name not in wall_groups:
+        wall_groups[type_name] = {"walls": [], "thick": [], "heights": []}
+    wall_groups[type_name]["walls"].append(w)
+    wall_groups[type_name]["thick"].append(get_wall_thickness_mm(w))
+    wall_groups[type_name]["heights"].append(get_wall_height_mm(w))
+
+wall_data = []
+for type_name, data in wall_groups.items():
+    avg_thick  = sum(data["thick"])   / len(data["thick"])
+    avg_height = sum(data["heights"]) / len(data["heights"])
+    density    = guess_density(type_name)
+    suggested  = calc_suggested_load(avg_thick, avg_height, density)
+    wall_data.append({
+        "type_name":         type_name,
+        "count":             len(data["walls"]),
+        "avg_thickness_mm":  avg_thick,
+        "avg_height_mm":     avg_height,
+        "suggested_load":    suggested,
+    })
+
+wall_data.sort(key=lambda x: x["count"], reverse=True)
+
+lm_form = LoadMappingForm(wall_data)
+dlg_result = lm_form.ShowDialog()
+
+if dlg_result != SWF.DialogResult.OK or not lm_form.mapping:
+    script.exit()
+
+mapping = lm_form.mapping
+
+lines_cat   = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Lines)
+created     = 0
+skipped     = 0
+palette_idx = 0
+
+with Transaction(doc, "WallLineLoad v2.1") as t:
+    t.Start()
+    try:
+        for type_name, data in wall_groups.items():
+            include, load_kn_m = mapping.get(type_name, (False, 0.0))
+
+            if not include:
+                skipped += len(data["walls"])
+                continue
+
+            style_name = "WLL_{}".format(type_name)
+            existing_cat = None
+            try:
+                for sub in lines_cat.SubCategories:
+                    if sub.Name == style_name:
+                        existing_cat = sub
+                        break
+            except Exception:
+                pass
+
+            if existing_cat:
+                line_cat = existing_cat
+            else:
+                line_cat  = doc.Settings.Categories.NewSubcategory(lines_cat, style_name)
+                r, g, b   = PALETTE[palette_idx % len(PALETTE)]
+                line_cat.LineColor = RevitColor(r, g, b)
+                palette_idx += 1
+
+            gfx_style = line_cat.GetGraphicsStyle(GraphicsStyleType.Projection)
+
+            for wall in data["walls"]:
+                loc = wall.Location
+                if not isinstance(loc, DB.LocationCurve):
+                    skipped += 1
+                    continue
+
+                curve = loc.Curve
+                detail_line           = doc.Create.NewDetailCurve(view, curve)
+                detail_line.LineStyle = gfx_style
+
+                # v2.2: Text AT wall midpoint, rotated with wall direction.
+                # TextNote opaque background masks the detail line — clean gap, no leader.
+                mid       = get_mid_point(curve)
+                angle     = get_wall_angle(curve)
+                wall_h_mm = get_wall_height_mm(wall)
+
+                # Two-line label: type name on line 1, load + height on line 2
+                label_text = "{}\nDL={:.1f}kN/m  H={:.0f}mm".format(
+                    type_name, load_kn_m, wall_h_mm
+                )
+
+                try:
+                    # Rotated TextNote using TextNoteOptions (Revit 2019+)
+                    opts = TextNoteOptions(text_type.Id)
+                    opts.HorizontalAlignment     = HorizontalTextAlignment.Center
+                    opts.KeepRotatedTextReadable = True
+                    opts.Rotation                = angle
+                    TextNote.Create(doc, view.Id, mid, label_text, opts)
+                except Exception:
+                    # Fallback: create then rotate separately
+                    tn   = TextNote.Create(doc, view.Id, mid, label_text, text_type.Id)
+                    axis = DB.Line.CreateBound(
+                        mid, XYZ(mid.X, mid.Y, mid.Z + 10.0)
+                    )
+                    DB.ElementTransformUtils.RotateElement(doc, tn.Id, axis, angle)
+
+                created += 1
+        t.Commit()
+    except Exception as err:
+        t.RollBack()
+        forms.alert("Transaction failed:\n{}".format(str(err)), exitscript=True)
+
+# ===========================================================================
+# HTML Output Report
+# ===========================================================================
+out.print_html("<hr/>")
+out.print_html(
+    "<h3>WallLineLoad v2.1 — Results</h3>"
+    "<p>View: <b>{vn}</b> &nbsp;|&nbsp; "
+    "Walls processed: <b>{wp}</b> &nbsp;|&nbsp; "
+    "Wall types: <b>{wt}</b></p>"
+    .format(vn=view.Name, wp=created, wt=len(wall_groups))
+)
+
+table_rows = ""
+for wd in wall_data:
+    tn           = wd["type_name"]
+    inc, load    = mapping.get(tn, (False, 0.0))
+    status_html  = (
+        "<span style='color:#2ecc71;font-weight:bold;'>✔ Created</span>"
+        if inc else
+        "<span style='color:#e74c3c;'>✘ Skipped</span>"
+    )
+    table_rows += (
+        "<tr>"
+        "<td style='padding:4px 10px;'>{tn}</td>"
+        "<td style='padding:4px 10px;text-align:center;'>{cnt}</td>"
+        "<td style='padding:4px 10px;text-align:center;'>{t:.0f}</td>"
+        "<td style='padding:4px 10px;text-align:center;'>{h:.1f}</td>"
+        "<td style='padding:4px 10px;text-align:center;color:#f5a623;font-weight:bold;'>"
+        "{load:.2f}</td>"
+        "<td style='padding:4px 10px;text-align:center;'>{status}</td>"
+        "</tr>"
+    ).format(
+        tn=tn,
+        cnt=wd["count"],
+        t=wd["avg_thickness_mm"],
+        h=wd["avg_height_mm"] / 1000.0,
+        load=load,
+        status=status_html
+    )
+
+out.print_html(
+    "<table border='1' cellpadding='0' cellspacing='0' "
+    "style='border-collapse:collapse;font-size:12px;'>"
+    "<tr style='background:#2a2a2a;font-weight:bold;'>"
+    "<td style='padding:4px 10px;'>Wall Type</td>"
+    "<td style='padding:4px 10px;'>Count</td>"
+    "<td style='padding:4px 10px;'>Thick.(mm)</td>"
+    "<td style='padding:4px 10px;'>Avg H (m)</td>"
+    "<td style='padding:4px 10px;'>DL (kN/m)</td>"
+    "<td style='padding:4px 10px;'>Status</td>"
+    "</tr>"
+    "{}</table>".format(table_rows)
+)
+
+out.print_html(
+    "<p>"
+    "<b style='color:#2ecc71;'>{c}</b> labels created &nbsp;|&nbsp; "
+    "<b style='color:#e74c3c;'>{s}</b> walls skipped"
+    "</p>".format(c=created, s=skipped)
+)
+
+forms.toast(
+    "{} wall labels created".format(created),
+    title="WallLineLoad v2.1",
+    appid="pyRevit",
+    click="",
+    icon="",
+)
