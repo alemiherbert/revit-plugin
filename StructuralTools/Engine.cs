@@ -674,49 +674,62 @@ public class WallLoadEngine
 
     private List<WallEntry> PickWalls()
     {
-        IList<Reference> refs;
-        try
-        {
-            refs = _uiDoc.Selection.PickObjects(
-                ObjectType.LinkedElement,
-                new WallOrLinkFilter(),
-                "Select walls — click or box-select (host or linked). Press Finish (✓) when done.");
-        }
-        catch (RevitOperationCanceledException)
-        {
-            return new List<WallEntry>();
-        }
-
         var newWalls = new List<WallEntry>();
         var seenKeys = new HashSet<string>();
         int skipped = 0, duplicates = 0;
 
-        foreach (var r in refs)
+        // --- PHASE 1: Pick walls in native model ---
+        IList<Reference> nativeRefs;
+        try
+        {
+            nativeRefs = _uiDoc.Selection.PickObjects(
+                ObjectType.Element,
+                new NativeWallFilter(),
+                "Select walls from the native model. Press Finish (✓) when done.");
+        }
+        catch (RevitOperationCanceledException)
+        {
+            nativeRefs = new List<Reference>();
+        }
+
+        foreach (var r in nativeRefs)
+        {
+            if (_doc.GetElement(r.ElementId) is not Wall w) { skipped++; continue; }
+            string dedupeKey = $"host:{r.ElementId.Value}";
+            if (seenKeys.Contains(dedupeKey)) { duplicates++; continue; }
+            seenKeys.Add(dedupeKey);
+            newWalls.Add(new WallEntry(w, Transform.Identity, null));
+        }
+
+        // --- PHASE 2: Pick walls in linked models ---
+        IList<Reference> linkedRefs;
+        try
+        {
+            linkedRefs = _uiDoc.Selection.PickObjects(
+                ObjectType.LinkedElement,
+                new LinkedWallFilter(),
+                "Select walls from linked models. Press Finish (✓) when done, or Escape to skip linked walls.");
+        }
+        catch (RevitOperationCanceledException)
+        {
+            linkedRefs = new List<Reference>();
+        }
+
+        foreach (var r in linkedRefs)
         {
             bool isLinked = r.LinkedElementId != ElementId.InvalidElementId;
-            string dedupeKey = isLinked
-                ? $"link:{r.ElementId.Value}:{r.LinkedElementId.Value}"
-                : $"host:{r.ElementId.Value}";
+            if (!isLinked) continue;  // Skip non-linked refs
 
+            string dedupeKey = $"link:{r.ElementId.Value}:{r.LinkedElementId.Value}";
             if (seenKeys.Contains(dedupeKey)) { duplicates++; continue; }
 
-            WallEntry entry;
-            if (isLinked)
-            {
-                if (_doc.GetElement(r.ElementId) is not RevitLinkInstance linkInst) { skipped++; continue; }
-                var linkDoc = linkInst.GetLinkDocument();
-                if (linkDoc == null) { skipped++; continue; }
-                if (linkDoc.GetElement(r.LinkedElementId) is not Wall w) { skipped++; continue; }
-                entry = new WallEntry(w, linkInst.GetTotalTransform(), linkDoc.Title);
-            }
-            else
-            {
-                if (_doc.GetElement(r.ElementId) is not Wall w) { skipped++; continue; }
-                entry = new WallEntry(w, Transform.Identity, null);
-            }
+            if (_doc.GetElement(r.ElementId) is not RevitLinkInstance linkInst) { skipped++; continue; }
+            var linkDoc = linkInst.GetLinkDocument();
+            if (linkDoc == null) { skipped++; continue; }
+            if (linkDoc.GetElement(r.LinkedElementId) is not Wall w) { skipped++; continue; }
 
             seenKeys.Add(dedupeKey);
-            newWalls.Add(entry);
+            newWalls.Add(new WallEntry(w, linkInst.GetTotalTransform(), linkDoc.Title));
         }
 
         if (newWalls.Count == 0)
@@ -1085,13 +1098,21 @@ public class WallLoadEngine
     }
 
     /// <summary>
-    /// Filter that allows selecting only Wall elements (host model) or
-    /// RevitLinkInstance elements (so walls inside links can also be picked).
+    /// Filter that allows selecting only Wall elements in the native (host) model.
     /// </summary>
-    private class WallOrLinkFilter : ISelectionFilter
+    private class NativeWallFilter : ISelectionFilter
     {
-        public bool AllowElement(Element elem) =>
-            (elem is Wall) || (elem is RevitLinkInstance);
+        public bool AllowElement(Element elem) => elem is Wall;
+
+        public bool AllowReference(Reference reference, XYZ position) => true;
+    }
+
+    /// <summary>
+    /// Filter that allows selecting walls accessible through linked models.
+    /// </summary>
+    private class LinkedWallFilter : ISelectionFilter
+    {
+        public bool AllowElement(Element elem) => elem is Wall;
 
         public bool AllowReference(Reference reference, XYZ position) => true;
     }
