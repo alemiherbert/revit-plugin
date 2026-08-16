@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.DB;
@@ -12,61 +13,64 @@ namespace StructuralTools;
 /// </summary>
 public class App : IExternalApplication
 {
-    private const string PanelName = "Alemi's Tools";
+    private const string PanelName = "Alemi";
 
     public Result OnStartup(UIControlledApplication application)
     {
         try
         {
-            // Create a panel on Revit's built-in Analyze tab.
+            // Create a compact panel on the Analyze tab.
             RibbonPanel panel = application.CreateRibbonPanel(Tab.Analyze, PanelName);
 
             string assemblyPath = Assembly.GetExecutingAssembly().Location;
             string assemblyName = Assembly.GetExecutingAssembly().GetName().Name ?? "StructuralTools";
 
-            // --- Generate Wall Loads button ---
-            var generateBtn = panel.AddItem(
-                new PushButtonData(
-                    "GenerateWallLoads",
-                    "Generate\nWall Loads",
-                    assemblyPath,
-                    "StructuralTools.GenerateWallLoadsCommand"
-                )
-            ) as PushButton;
+            // Revit stacked buttons display the label to the right of the icon in a compact layout.
+            var generateData = new PushButtonData(
+                "GenerateWallLoads",
+                "Generate",
+                assemblyPath,
+                "StructuralTools.GenerateWallLoadsCommand"
+            );
 
-            if (generateBtn != null)
+            var highlightData = new PushButtonData(
+                "HighlightProblematicLoads",
+                "Highlight",
+                assemblyPath,
+                "StructuralTools.HighlightProblematicLoadsCommand"
+            );
+
+            var repairData = new PushButtonData(
+                "RepairIdentifiedLoads",
+                "Repair",
+                assemblyPath,
+                "StructuralTools.RepairIdentifiedLoadsCommand"
+            );
+
+            var stackedItems = panel.AddStackedItems(generateData, highlightData, repairData);
+
+            if (stackedItems[0] is PushButton generateBtn)
             {
-                generateBtn.ToolTip = "Pick walls and generate line loads on a host beam or floor";
-                generateBtn.LongDescription =
-                    "Click to enter Revit's native wall-selection mode (only Wall elements are clickable). " +
-                    "Press Finish (✓) when done, then pick the host beam or floor. " +
-                    "Line loads are created in the current load case.";
-                generateBtn.LargeImage = LoadPackImage(assemblyName, "Generate32.png");
-                generateBtn.Image      = LoadPackImage(assemblyName, "Generate16.png");
+                generateBtn.ToolTip = "Generate Wall Loads";
+                generateBtn.LongDescription = "Generate wall loads on the host beam or floor.";
+                generateBtn.Image = LoadPackImage(assemblyName, "Generate16.png");
+                generateBtn.LargeImage = LoadPackImage(assemblyName, "Generate16.png");
             }
 
-            panel.AddSeparator();
-
-            // --- Highlight Problematic Loads button ---
-            var highlightBtn = panel.AddItem(
-                new PushButtonData(
-                    "HighlightProblematicLoads",
-                    "Highlight\nProblematic Loads",
-                    assemblyPath,
-                    "StructuralTools.HighlightProblematicLoadsCommand"
-                )
-            ) as PushButton;
-
-            if (highlightBtn != null)
+            if (stackedItems[1] is PushButton highlightBtn)
             {
-                highlightBtn.ToolTip = "Highlight line loads with warnings (not fully hosted)";
-                highlightBtn.LongDescription =
-                    "Diagnostic tool: Identifies line loads that have Revit warnings " +
-                    "(typically due to partial overhang from analytical elements) and " +
-                    "highlights them in red in the current view. Clean loads are unmarked. " +
-                    "This helps quickly identify problematic loads that need fixing.";
-                highlightBtn.LargeImage = LoadPackImage(assemblyName, "Generate32.png");
-                highlightBtn.Image      = LoadPackImage(assemblyName, "Generate16.png");
+                highlightBtn.ToolTip = "Highlight Problematic Loads";
+                highlightBtn.LongDescription = "Highlight line loads that are incompatible with the analytical model in red.";
+                highlightBtn.Image = LoadPackImage(assemblyName, "Generate16.png");
+                highlightBtn.LargeImage = LoadPackImage(assemblyName, "Generate16.png");
+            }
+
+            if (stackedItems[2] is PushButton repairBtn)
+            {
+                repairBtn.ToolTip = "Repair Identified Loads";
+                repairBtn.LongDescription = "Apply the case-based repair for warning-diagnosed line loads.";
+                repairBtn.Image = LoadPackImage(assemblyName, "Generate16.png");
+                repairBtn.LargeImage = LoadPackImage(assemblyName, "Generate16.png");
             }
 
             return Result.Succeeded;
@@ -82,21 +86,38 @@ public class App : IExternalApplication
     public Result OnShutdown(UIControlledApplication application) => Result.Succeeded;
 
     /// <summary>
-    /// Loads an embedded PNG resource via Pack URI. Returns null if the resource is missing
-    /// or cannot be decoded — never throws, so the ribbon still loads without icons.
+    /// Loads an embedded PNG resource directly from the assembly manifest so it works reliably
+    /// in Revit add-ins regardless of whether WPF pack URIs resolve in the hosting process.
     /// </summary>
     private static BitmapImage? LoadPackImage(string assemblyName, string resourceName)
     {
         try
         {
-            var uri = new Uri(
-                $"pack://application:,,,/{assemblyName};component/Resources/{resourceName}",
-                UriKind.Absolute);
+            var assembly = Assembly.GetExecutingAssembly();
+            string[] resourceNames = assembly.GetManifestResourceNames();
+            string? fullName = resourceNames.FirstOrDefault(n =>
+                n.EndsWith($".{resourceName}", StringComparison.OrdinalIgnoreCase) ||
+                n.EndsWith($"Resources.{resourceName}", StringComparison.OrdinalIgnoreCase));
+
+            if (string.IsNullOrEmpty(fullName))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[StructuralTools] Missing embedded resource '{resourceName}' in assembly '{assemblyName}'.");
+                return null;
+            }
+
+            using var stream = assembly.GetManifestResourceStream(fullName);
+            if (stream == null)
+                return null;
+
+            using var memory = new MemoryStream();
+            stream.CopyTo(memory);
+            memory.Position = 0;
 
             var bmp = new BitmapImage();
             bmp.BeginInit();
-            bmp.CacheOption  = BitmapCacheOption.OnLoad;
-            bmp.UriSource    = uri;
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.StreamSource = memory;
             bmp.EndInit();
             bmp.Freeze();
             return bmp;

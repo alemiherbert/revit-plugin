@@ -46,7 +46,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Embedded WPF resources, loaded via Pack URI at runtime. -->
+    <!-- Embedded resources for the ribbon icons. Must be an embedded resource to be
+         readable via Assembly.GetManifestResourceStream(). -->
     <Resource Include="Resources\Generate32.png" />
     <Resource Include="Resources\Generate16.png" />
     <Resource Include="Resources\Staircase32.png" />
@@ -54,6 +55,13 @@
     <Resource Include="Resources\Logo.png" />
     <Resource Include="Resources\Settings16.png" />
     <Resource Include="Resources\Settings32.png" />
+    <EmbeddedResource Include="Resources\Generate32.png" />
+    <EmbeddedResource Include="Resources\Generate16.png" />
+    <EmbeddedResource Include="Resources\Staircase32.png" />
+    <EmbeddedResource Include="Resources\Staircase16.png" />
+    <EmbeddedResource Include="Resources\Logo.png" />
+    <EmbeddedResource Include="Resources\Settings16.png" />
+    <EmbeddedResource Include="Resources\Settings32.png" />
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">

@@ -632,31 +632,12 @@ public class HighlightProblematicLoadsCommand : IExternalCommand
                 return Result.Cancelled;
             }
 
-            // Collect IDs of line loads with warnings
+            // Collect IDs of line loads with warnings and classify their repair case.
             var warnedLoadIds = new HashSet<ElementId>();
             var warningMessages = new HashSet<string>();
 
-            foreach (var warning in doc.GetWarnings())
-            {
-                try
-                {
-                    string warningText = warning.GetDescriptionText();
-                    var failingElementIds = warning.GetFailingElements();
-
-                    foreach (var elementId in failingElementIds)
-                    {
-                        if (allLineLoads.Any(ll => ll.Id == elementId))
-                        {
-                            warnedLoadIds.Add(elementId);
-                            if (!string.IsNullOrEmpty(warningText))
-                                warningMessages.Add(warningText);
-                        }
-                    }
-                }
-                catch { /* Skip problematic warnings */ }
-            }
-
-            // Apply red override to warned loads, clear override for clean loads
+            // Store the diagnosis in the same transaction as the visual overrides so
+            // the persisted schema survives and can be read back by the repair tool.
             var red = new Color(255, 0, 0);
             var ogs_red = new OverrideGraphicSettings().SetProjectionLineColor(red);
             var ogs_clear = new OverrideGraphicSettings();
@@ -664,6 +645,38 @@ public class HighlightProblematicLoadsCommand : IExternalCommand
             using (var tx = new Transaction(doc, "Highlight Problematic Loads"))
             {
                 tx.Start();
+
+                foreach (var warning in doc.GetWarnings())
+                {
+                    try
+                    {
+                        string warningText = warning.GetDescriptionText();
+                        if (string.IsNullOrWhiteSpace(warningText))
+                            continue;
+
+                        RepairCase classification = ClassifyWarning(warningText);
+                        var failingElementIds = warning.GetFailingElements();
+
+                        foreach (var elementId in failingElementIds)
+                        {
+                            var load = allLineLoads.FirstOrDefault(ll => ll.Id == elementId);
+                            if (load == null)
+                                continue;
+
+                            warnedLoadIds.Add(elementId);
+                            warningMessages.Add(warningText);
+
+                            RevitLoadUtils.StoreDiagnosis(doc, load, new LoadDiagnosis
+                            {
+                                Case = classification,
+                                WarningText = warningText,
+                                HostId = load.HostElementId != ElementId.InvalidElementId ? load.HostElementId : null,
+                                Severity = 1
+                            });
+                        }
+                    }
+                    catch { /* Skip problematic warnings */ }
+                }
 
                 foreach (var lineLoad in allLineLoads)
                 {
@@ -684,6 +697,46 @@ public class HighlightProblematicLoadsCommand : IExternalCommand
                 $"Total loads: {allLineLoads.Count}\n\n" +
                 "Problematic loads are highlighted in RED.\n" +
                 "These loads may not be fully hosted on analytical elements.\n\n";
+
+            // Add warning classification helper within the command scope.
+            static RepairCase ClassifyWarning(string warningText)
+            {
+                string text = warningText.ToLowerInvariant();
+
+                if (text.Contains("line load exceeds the host boundaries") ||
+                    text.Contains("exceeds the host boundaries") ||
+                    text.Contains("host boundaries") ||
+                    text.Contains("placed over an analytical opening") ||
+                    text.Contains("analytical opening") ||
+                    text.Contains("over an analytical opening") ||
+                    text.Contains("overhang") ||
+                    text.Contains("panel edge") ||
+                    text.Contains("analytical panel") ||
+                    text.Contains("outside") ||
+                    text.Contains("edge") ||
+                    text.Contains("trim") ||
+                    text.Contains("boundary"))
+                {
+                    return RepairCase.OverhangPanelEdge;
+                }
+
+                if (text.Contains("node") || text.Contains("endpoint") || text.Contains("end point") || text.Contains("beyond") || text.Contains("overshoot") || text.Contains("extend"))
+                    return RepairCase.ExtendsBeyondNode;
+
+                if (text.Contains("offset") || text.Contains("parallel") || text.Contains("misalign") || text.Contains("alignment"))
+                    return RepairCase.OffsetToEdge;
+
+                if (text.Contains("host") || text.Contains("member") || text.Contains("floating") || text.Contains("not attached") || text.Contains("not hosted") || text.Contains("nearest member"))
+                    return RepairCase.MoveToNearestMember;
+
+                if (text.Contains("short") || text.Contains("degenerate") || text.Contains("negligible") || text.Contains("zero length") || text.Contains("too small"))
+                    return RepairCase.DeleteMinimalLoad;
+
+                if (text.Contains("snap") || text.Contains("near edge") || text.Contains("closest") || text.Contains("panel"))
+                    return RepairCase.SnapToPanelEdge;
+
+                return RepairCase.ManualReview;
+            }
 
             if (warningMessages.Count > 0)
             {
